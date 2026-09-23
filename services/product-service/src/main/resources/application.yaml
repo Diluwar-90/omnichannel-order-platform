@@ -3,14 +3,17 @@ spring:
     name: product-service
 
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/omnichannel}
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/omnichannel}
     username: ${DB_USERNAME:app_user}
     password: ${DB_PASSWORD:app_password}
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
+
+  flyway:
+    baseline-on-migrate: true
 
 server:
   port: 8082
