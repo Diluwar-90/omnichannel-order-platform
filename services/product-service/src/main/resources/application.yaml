@@ -17,3 +17,23 @@ spring:
 
 server:
   port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+  endpoint:
+    health:
+      show-details: when_authorized
+
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: product-service
+    description: Product microservice for omnichannel order platform
+    version: 1.0.0
