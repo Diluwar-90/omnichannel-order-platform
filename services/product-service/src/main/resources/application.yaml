@@ -11,9 +11,13 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: product_schema
 
   flyway:
     baseline-on-migrate: true
+    default-schema: product_schema
 
 server:
   port: 8082
@@ -36,4 +40,4 @@ info:
   app:
     name: product-service
     description: Product microservice for omnichannel order platform
-    version: 1.0.0
+    version: 1.0.0                                  

@@ -18,4 +18,4 @@ CREATE TABLE order_items (
         FOREIGN KEY (order_id)
         REFERENCES orders(id)
         ON DELETE CASCADE
-);
+);                      
