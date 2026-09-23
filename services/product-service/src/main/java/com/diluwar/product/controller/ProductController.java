@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/products")    
@@ -20,6 +21,7 @@ public class ProductController {
 
     @PostMapping
     @Transactional 
+    @ResponseStatus(HttpStatus.CREATED)
     public ProductResponse createProduct(@Valid  @RequestBody ProductRequest request) {
         return productService.createProduct(request);
     }
@@ -45,6 +47,7 @@ public class ProductController {
 
     @Transactional     
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteProduct(@PathVariable Long id) {
         productService.deleteProduct(id);
     }
