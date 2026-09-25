@@ -12,6 +12,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -20,6 +22,11 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
@@ -333,4 +340,78 @@ void shouldGetOrderById() {
 
     verify(orderRepository).findById(999L);
     }
+
+    @Test
+void shouldGetOrders() {
+
+    Order order = new Order();
+
+    order.setId(200L);
+    order.setCustomerId(9001L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("300.00"));
+
+    Instant now = Instant.now();
+
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    Pageable pageable = PageRequest.of(0, 10);
+
+    Page<Order> orderPage =
+            new PageImpl<>(
+                    List.of(order),
+                    pageable,
+                    1
+            );
+
+    when(orderRepository.findAll(pageable))
+            .thenReturn(orderPage);
+
+    Page<OrderResponse> response =
+            orderService.getOrders(pageable);
+
+    assertNotNull(response);
+    assertEquals(1, response.getTotalElements());
+    assertEquals(1, response.getContent().size());
+
+    OrderResponse orderResponse =
+            response.getContent().get(0);
+
+    assertEquals(200L, orderResponse.id());
+    assertEquals(9001L, orderResponse.customerId());
+    assertEquals(OrderStatus.CREATED, orderResponse.status());
+    assertEquals(
+            new BigDecimal("300.00"),
+            orderResponse.totalAmount()
+    );
+
+    verify(orderRepository).findAll(pageable);
+}
+
+@Test
+void shouldReturnEmptyPageWhenNoOrdersExist() {
+
+    Pageable pageable = PageRequest.of(0, 10);
+
+    Page<Order> emptyPage =
+            new PageImpl<>(
+                    List.of(),
+                    pageable,
+                    0
+            );
+
+    when(orderRepository.findAll(pageable))
+            .thenReturn(emptyPage);
+
+    Page<OrderResponse> response =
+            orderService.getOrders(pageable);
+
+    assertNotNull(response);
+    assertTrue(response.isEmpty());
+    assertEquals(0, response.getTotalElements());
+    assertEquals(0, response.getContent().size());
+
+    verify(orderRepository).findAll(pageable);
+}
 }
