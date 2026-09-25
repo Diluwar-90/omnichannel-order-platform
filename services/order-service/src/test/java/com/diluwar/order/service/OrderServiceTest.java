@@ -414,4 +414,74 @@ void shouldReturnEmptyPageWhenNoOrdersExist() {
 
     verify(orderRepository).findAll(pageable);
 }
+
+@Test
+void shouldUpdateOrderStatus() {
+
+    Order order = new Order();
+
+    order.setId(300L);
+    order.setCustomerId(10001L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("500.00"));
+
+    Instant createdAt = Instant.now();
+    Instant updatedAt = createdAt;
+
+    order.setCreatedAt(createdAt);
+    order.setUpdatedAt(updatedAt);
+
+    when(orderRepository.findById(300L))
+            .thenReturn(java.util.Optional.of(order));
+
+    when(orderRepository.save(order))
+            .thenReturn(order);
+
+    OrderResponse response =
+            orderService.updateStatus(
+                    300L,
+                    OrderStatus.CONFIRMED
+            );
+
+    assertNotNull(response);
+    assertEquals(300L, response.id());
+    assertEquals(OrderStatus.CONFIRMED, response.status());
+    assertEquals(
+            new BigDecimal("500.00"),
+            response.totalAmount()
+    );
+
+    assertNotNull(response.updatedAt());
+    assertTrue(
+            response.updatedAt().compareTo(updatedAt) >= 0
+    );
+
+    verify(orderRepository).findById(300L);
+    verify(orderRepository).save(order);
+}
+
+@Test
+void shouldThrowOrderNotFoundExceptionWhenUpdatingMissingOrder() {
+
+    when(orderRepository.findById(999L))
+            .thenReturn(java.util.Optional.empty());
+
+    OrderNotFoundException exception =
+            assertThrows(
+                    OrderNotFoundException.class,
+                    () -> orderService.updateStatus(
+                            999L,
+                            OrderStatus.CONFIRMED
+                    )
+            );
+
+    assertEquals(
+            "Order not found: 999",
+            exception.getMessage()
+    );
+
+    verify(orderRepository).findById(999L);
+    verify(orderRepository, never()).save(any(Order.class));
+}
+
 }
