@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -274,5 +275,62 @@ class OrderServiceTest {
                 savedOrder,
                 savedOrder.getItems().get(0).getOrder()
         );
+    }
+
+    @Test
+void shouldGetOrderById() {
+
+    Order order = new Order();
+
+    order.setId(100L);
+    order.setCustomerId(8001L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("250.00"));
+
+    Instant now = Instant.now();
+
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    when(orderRepository.findById(100L))
+            .thenReturn(java.util.Optional.of(order));
+
+    OrderResponse response = orderService.getOrder(100L);
+
+    assertNotNull(response);
+    assertEquals(100L, response.id());
+    assertEquals(8001L, response.customerId());
+    assertEquals(OrderStatus.CREATED, response.status());
+    assertEquals(
+            new BigDecimal("250.00"),
+            response.totalAmount()
+    );
+
+    assertNotNull(response.createdAt());
+    assertNotNull(response.updatedAt());
+
+    assertEquals(0, response.items().size());
+
+    verify(orderRepository).findById(100L);
+}
+
+    @Test
+    void shouldThrowOrderNotFoundExceptionWhenOrderDoesNotExist() {
+
+    when(orderRepository.findById(999L))
+            .thenReturn(java.util.Optional.empty());
+
+    OrderNotFoundException exception =
+            assertThrows(
+                    OrderNotFoundException.class,
+                    () -> orderService.getOrder(999L)
+            );
+
+    assertEquals(
+            "Order not found: 999",
+            exception.getMessage()
+    );
+
+    verify(orderRepository).findById(999L);
     }
 }
