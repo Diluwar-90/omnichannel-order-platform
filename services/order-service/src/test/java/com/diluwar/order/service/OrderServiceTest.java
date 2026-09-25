@@ -484,4 +484,43 @@ void shouldThrowOrderNotFoundExceptionWhenUpdatingMissingOrder() {
     verify(orderRepository, never()).save(any(Order.class));
 }
 
+@Test
+void shouldDeleteOrder() {
+
+    Order order = new Order();
+
+    order.setId(400L);
+    order.setCustomerId(11001L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("150.00"));
+
+    Instant now = Instant.now();
+
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    when(orderRepository.findById(400L))
+            .thenReturn(java.util.Optional.of(order));
+
+    orderService.deleteOrder(400L);
+
+    verify(orderRepository).findById(400L);
+    verify(orderRepository).delete(order);
+}
+
+@Test
+void shouldThrowOrderNotFoundExceptionWhenDeletingMissingOrder() {
+
+    when(orderRepository.findById(999L))
+            .thenReturn(java.util.Optional.empty());
+
+    assertThrows(
+            OrderNotFoundException.class,
+            () -> orderService.deleteOrder(999L)
+    );
+
+    verify(orderRepository).findById(999L);
+    verify(orderRepository, never()).delete(any(Order.class));
+}
+
 }
