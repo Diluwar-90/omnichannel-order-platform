@@ -9,8 +9,11 @@ import com.diluwar.order.entity.OrderItem;
 import com.diluwar.order.entity.OrderStatus;
 import com.diluwar.order.repository.OrderRepository;
 import jakarta.transaction.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -34,11 +37,12 @@ public class OrderService {
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
 
-        double totalAmount = 0.0;
+        BigDecimal totalAmount = BigDecimal.ZERO;
 
         for (OrderItemRequest itemRequest : request.items()) {
 
             OrderItem item = new OrderItem();
+
             item.setOrder(order);
             item.setProductId(itemRequest.productId());
             item.setQuantity(itemRequest.quantity());
@@ -46,8 +50,13 @@ public class OrderService {
 
             order.getItems().add(item);
 
-            totalAmount +=
-                    itemRequest.quantity() * itemRequest.unitPrice();
+            BigDecimal lineTotal =
+                    itemRequest.unitPrice()
+                            .multiply(
+                                    BigDecimal.valueOf(itemRequest.quantity())
+                            );
+
+            totalAmount = totalAmount.add(lineTotal);
         }
 
         order.setTotalAmount(totalAmount);
@@ -55,6 +64,54 @@ public class OrderService {
         Order savedOrder = orderRepository.save(order);
 
         return toResponse(savedOrder);
+    }
+
+    @Transactional
+    public OrderResponse getOrder(Long id) {
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() ->
+                        new OrderNotFoundException(id)
+                );
+
+        return toResponse(order);
+    }
+
+    @Transactional
+    public Page<OrderResponse> getOrders(Pageable pageable) {
+
+        return orderRepository.findAll(pageable)
+                .map(this::toResponse);
+    }
+
+    @Transactional
+    public OrderResponse updateStatus(
+            Long id,
+            OrderStatus status
+    ) {
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() ->
+                        new OrderNotFoundException(id)
+                );
+
+        order.setStatus(status);
+        order.setUpdatedAt(Instant.now());
+
+        Order updatedOrder = orderRepository.save(order);
+
+        return toResponse(updatedOrder);
+    }
+
+    @Transactional
+    public void deleteOrder(Long id) {
+
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() ->
+                        new OrderNotFoundException(id)
+                );
+
+        orderRepository.delete(order);
     }
 
     private OrderResponse toResponse(Order order) {
