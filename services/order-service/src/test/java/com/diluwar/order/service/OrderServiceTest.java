@@ -873,4 +873,138 @@ void shouldReleaseInventoryForEveryOrderItemWhenPaymentFails() {
             .release(anyLong(), anyInt());
 }
 
+@Test
+void shouldNotConfirmOrderMoreThanOnceWhenCapturedEventIsRepeated() {
+
+    Order order = new Order();
+
+    order.setId(505L);
+    order.setCustomerId(12006L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("500.00"));
+
+    Instant now = Instant.now();
+
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    PaymentResponse payment = new PaymentResponse(
+            6L,
+            505L,
+            new BigDecimal("500.00"),
+            "INR",
+            "CAPTURED",
+            null,
+            now,
+            now
+    );
+
+    when(orderRepository.findById(505L))
+            .thenReturn(java.util.Optional.of(order));
+
+    when(paymentClient.getPaymentByOrderId(505L))
+            .thenReturn(payment);
+
+    when(orderRepository.save(order))
+            .thenReturn(order);
+
+    // First CAPTURED event
+    OrderResponse first =
+            orderService.confirmOrder(505L);
+
+    assertEquals(
+            OrderStatus.CONFIRMED,
+            first.status()
+    );
+
+    // Simulate duplicate CAPTURED event
+    order.setStatus(OrderStatus.CONFIRMED);
+
+    OrderResponse second =
+            orderService.confirmOrder(505L);
+
+    assertEquals(
+            OrderStatus.CONFIRMED,
+            second.status()
+    );
+
+    // Payment service should only be consulted once.
+    verify(paymentClient, times(1))
+            .getPaymentByOrderId(505L);
+
+    // Order should only be persisted once.
+    verify(orderRepository, times(1))
+            .save(order);
+}
+
+@Test
+void shouldReleaseInventoryOnlyOnceWhenPaymentFailureEventIsRepeated() {
+
+    Order order = new Order();
+
+    order.setId(506L);
+    order.setCustomerId(12007L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("600.00"));
+
+    Instant now = Instant.now();
+
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    OrderItem item = new OrderItem();
+
+    item.setProductId(801L);
+    item.setQuantity(2);
+    item.setUnitPrice(new BigDecimal("300.00"));
+
+    order.getItems().add(item);
+
+    PaymentResponse payment = new PaymentResponse(
+            7L,
+            506L,
+            new BigDecimal("600.00"),
+            "INR",
+            "FAILED",
+            null,
+            now,
+            now
+    );
+
+    when(orderRepository.findById(506L))
+            .thenReturn(java.util.Optional.of(order));
+
+    when(paymentClient.getPaymentByOrderId(506L))
+            .thenReturn(payment);
+
+    when(orderRepository.save(order))
+            .thenReturn(order);
+
+    // FAILED event #1
+    OrderResponse first =
+            orderService.handlePaymentFailure(506L);
+
+    assertEquals(
+            OrderStatus.CANCELLED,
+            first.status()
+    );
+
+    // FAILED event #2
+    OrderResponse second =
+            orderService.handlePaymentFailure(506L);
+
+    assertEquals(
+            OrderStatus.CANCELLED,
+            second.status()
+    );
+
+    // Inventory must be released exactly once.
+    verify(inventoryClient, times(1))
+            .release(801L, 2);
+
+    // Order must be persisted only once.
+    verify(orderRepository, times(1))
+            .save(order);
+}
+
 }

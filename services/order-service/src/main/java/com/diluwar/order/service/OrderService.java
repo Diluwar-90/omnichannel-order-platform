@@ -173,13 +173,19 @@ public PaymentResponse getPaymentByOrderId(Long orderId) {
         );
     }
 
-    @Transactional
+ @Transactional
 public OrderResponse confirmOrder(Long orderId) {
 
     Order order = orderRepository.findById(orderId)
             .orElseThrow(() ->
                     new OrderNotFoundException(orderId)
             );
+
+    // Idempotency:
+    // Duplicate CAPTURED events must not confirm again.
+    if (order.getStatus() == OrderStatus.CONFIRMED) {
+        return toResponse(order);
+    }
 
     if (order.getStatus() != OrderStatus.CREATED) {
         throw new IllegalStateException(
@@ -191,29 +197,29 @@ public OrderResponse confirmOrder(Long orderId) {
     PaymentResponse payment =
             paymentClient.getPaymentByOrderId(orderId);
 
-if ("FAILED".equals(payment.status())) {
+    if ("FAILED".equals(payment.status())) {
 
-    order.setStatus(OrderStatus.CANCELLED);
-    order.setUpdatedAt(Instant.now());
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setUpdatedAt(Instant.now());
 
-    for (OrderItem item : order.getItems()) {
-        inventoryClient.release(
-                item.getProductId(),
-                item.getQuantity()
+        for (OrderItem item : order.getItems()) {
+            inventoryClient.release(
+                    item.getProductId(),
+                    item.getQuantity()
+            );
+        }
+
+        return toResponse(
+                orderRepository.save(order)
         );
     }
 
-    return toResponse(
-            orderRepository.save(order)
-    );
-}
-
-if (!"CAPTURED".equals(payment.status())) {
-    throw new OrderConfirmationException(
-            "Order cannot be confirmed because payment status is: "
-                    + payment.status()
-    );
-}
+    if (!"CAPTURED".equals(payment.status())) {
+        throw new OrderConfirmationException(
+                "Order cannot be confirmed because payment status is: "
+                        + payment.status()
+        );
+    }
 
     order.setStatus(OrderStatus.CONFIRMED);
     order.setUpdatedAt(Instant.now());
