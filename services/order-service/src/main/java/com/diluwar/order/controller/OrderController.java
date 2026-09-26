@@ -2,6 +2,7 @@ package com.diluwar.order.controller;
 
 import com.diluwar.order.dto.CreateOrderRequest;
 import com.diluwar.order.dto.OrderResponse;
+import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.entity.OrderStatus;
 import com.diluwar.order.service.OrderService;
 import jakarta.validation.Valid;
@@ -38,6 +39,15 @@ public class OrderController {
                 orderService.getOrder(id)
         );
     }
+
+    @GetMapping("/{id}/payment")
+public ResponseEntity<PaymentResponse> getPayment(
+        @PathVariable Long id) {
+
+    return ResponseEntity.ok(
+            orderService.getPaymentByOrderId(id)
+    );
+}
 
     @GetMapping
     public ResponseEntity<Page<OrderResponse>> getOrders(

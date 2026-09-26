@@ -6,6 +6,7 @@ import com.diluwar.order.dto.CreateOrderRequest;
 import com.diluwar.order.dto.OrderItemRequest;
 import com.diluwar.order.dto.OrderItemResponse;
 import com.diluwar.order.dto.OrderResponse;
+import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.entity.Order;
 import com.diluwar.order.entity.OrderItem;
 import com.diluwar.order.entity.OrderStatus;
@@ -99,6 +100,18 @@ public OrderService(
         return toResponse(order);
     }
 
+
+public PaymentResponse getPaymentByOrderId(Long orderId) {
+
+    // Verify that the order exists first
+    orderRepository.findById(orderId)
+            .orElseThrow(() ->
+                    new OrderNotFoundException(orderId)
+            );
+
+    return paymentClient.getPaymentByOrderId(orderId);
+        }
+
     @Transactional
     public Page<OrderResponse> getOrders(Pageable pageable) {
 
@@ -158,4 +171,25 @@ public OrderService(
                 items
         );
     }
+
+    @Transactional
+public OrderResponse confirmOrder(Long orderId) {
+
+    Order order = orderRepository.findById(orderId)
+            .orElseThrow(() ->
+                    new OrderNotFoundException(orderId)
+            );
+
+    if (order.getStatus() != OrderStatus.CREATED) {
+        throw new IllegalStateException(
+                "Order cannot be confirmed from status: "
+                        + order.getStatus()
+        );
+    }
+
+    order.setStatus(OrderStatus.CONFIRMED);
+    order.setUpdatedAt(Instant.now());
+
+    return toResponse(orderRepository.save(order));
+}
 }
