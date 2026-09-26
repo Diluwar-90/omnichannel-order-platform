@@ -794,4 +794,126 @@ void shouldCancelOrderAndReleaseInventoryWhenPaymentFailsThroughFullStack() {
     );
 }
 
+@Test
+void shouldNotConfirmOrderWhenPaymentIsAuthorized() {
+
+    String request = """
+            {
+                "customerId": 5004,
+                "items": [
+                    {
+                        "productId": 801,
+                        "quantity": 1,
+                        "unitPrice": 700.00
+                    }
+                ]
+            }
+            """;
+
+    // 1. Create order
+    OrderResponse created =
+            restClient()
+                    .post()
+                    .uri("/api/orders")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(created);
+
+    assertEquals(
+            OrderStatus.CREATED,
+            created.status()
+    );
+
+    // 2. Get payment
+    RestClient paymentClient =
+            RestClient.builder()
+                    .baseUrl(
+                            "http://localhost:" +
+                            paymentService.getMappedPort(8085)
+                    )
+                    .build();
+
+    PaymentResponse payment =
+            paymentClient
+                    .get()
+                    .uri("/api/v1/payments/order/" + created.id())
+                    .retrieve()
+                    .body(PaymentResponse.class);
+
+    assertNotNull(payment);
+
+    assertEquals(
+            "PENDING",
+            payment.status()
+    );
+
+    // 3. PENDING -> AUTHORIZED
+    PaymentResponse authorizedPayment =
+            paymentClient
+                    .patch()
+                    .uri(
+                            "/api/v1/payments/" +
+                            payment.id() +
+                            "/status"
+                    )
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("""
+                            {
+                                "status": "AUTHORIZED"
+                            }
+                            """)
+                    .retrieve()
+                    .body(PaymentResponse.class);
+
+    assertNotNull(authorizedPayment);
+
+    assertEquals(
+            "AUTHORIZED",
+            authorizedPayment.status()
+    );
+
+    // 4. Try to confirm while payment is only AUTHORIZED
+    var exception = assertThrows(
+            org.springframework.web.client.HttpClientErrorException.Conflict.class,
+            () -> restClient()
+                    .put()
+                    .uri(
+                            "/api/orders/" +
+                            created.id() +
+                            "/confirm"
+                    )
+                    .retrieve()
+                    .toBodilessEntity()
+    );
+
+    // 5. Confirm request must be rejected
+    assertEquals(
+            409,
+            exception.getStatusCode().value()
+    );
+
+    // 6. Verify order is STILL CREATED
+    OrderResponse currentOrder =
+            restClient()
+                    .get()
+                    .uri("/api/orders/" + created.id())
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(currentOrder);
+
+    assertEquals(
+            created.id(),
+            currentOrder.id()
+    );
+
+    assertEquals(
+            OrderStatus.CREATED,
+            currentOrder.status()
+    );
+}
+
 }
