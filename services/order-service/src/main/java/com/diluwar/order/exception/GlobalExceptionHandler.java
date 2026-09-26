@@ -5,11 +5,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import com.diluwar.order.exception.InventoryReservationException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -60,4 +62,30 @@ public class GlobalExceptionHandler {
 
         return response;
     }
+
+
+    private Map<String, Object> response(
+        int status,
+        String message) {
+
+    Map<String, Object> response = new HashMap<>();
+
+    response.put("timestamp", Instant.now());
+    response.put("status", status);
+    response.put("message", message);
+
+    return response;
+
+}
+
+@ExceptionHandler(InventoryReservationException.class)
+@ResponseStatus(HttpStatus.CONFLICT)
+public Map<String, Object> handleInventoryReservation(
+        InventoryReservationException ex) {
+
+    return response(
+            HttpStatus.CONFLICT.value(),
+            ex.getMessage()
+    );
+}
 }

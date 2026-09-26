@@ -1,5 +1,7 @@
 package com.diluwar.order.service;
 
+import com.diluwar.order.client.InventoryClient;
+import com.diluwar.order.client.PaymentClient;
 import com.diluwar.order.dto.CreateOrderRequest;
 import com.diluwar.order.dto.OrderItemRequest;
 import com.diluwar.order.dto.OrderItemResponse;
@@ -21,10 +23,19 @@ import java.util.List;
 public class OrderService {
 
     private final OrderRepository orderRepository;
+private final InventoryClient inventoryClient;
+private final PaymentClient paymentClient;
 
-    public OrderService(OrderRepository orderRepository) {
-        this.orderRepository = orderRepository;
+public OrderService(
+        OrderRepository orderRepository,
+        InventoryClient inventoryClient,
+        PaymentClient paymentClient) {
+
+    this.orderRepository = orderRepository;
+    this.inventoryClient = inventoryClient;
+    this.paymentClient = paymentClient;
     }
+
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -40,6 +51,11 @@ public class OrderService {
         BigDecimal totalAmount = BigDecimal.ZERO;
 
         for (OrderItemRequest itemRequest : request.items()) {
+
+            inventoryClient.reserve(
+            itemRequest.productId(),
+            itemRequest.quantity()
+            );
 
             OrderItem item = new OrderItem();
 
@@ -62,6 +78,12 @@ public class OrderService {
         order.setTotalAmount(totalAmount);
 
         Order savedOrder = orderRepository.save(order);
+
+        paymentClient.createPayment(
+        savedOrder.getId(),
+        savedOrder.getTotalAmount(),
+        "INR"
+);
 
         return toResponse(savedOrder);
     }

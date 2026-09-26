@@ -1,5 +1,7 @@
 package com.diluwar.order.service;
 
+import com.diluwar.order.client.InventoryClient;
+import com.diluwar.order.client.PaymentClient;
 import com.diluwar.order.dto.CreateOrderRequest;
 import com.diluwar.order.dto.OrderItemRequest;
 import com.diluwar.order.dto.OrderResponse;
@@ -27,6 +29,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestClient;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
@@ -36,10 +40,57 @@ class OrderServiceTest {
 
     private OrderService orderService;
 
+    @Mock
+    private InventoryClient inventoryClient;
+
+    @Mock
+    private PaymentClient paymentClient;
+
     @BeforeEach
     void setUp() {
-        orderService = new OrderService(orderRepository);
+        orderService = new OrderService(
+        orderRepository,
+        inventoryClient,
+        paymentClient
+  );
     }
+
+    @BeforeEach
+    void setupInventory() {
+
+    RestClient inventoryClient = RestClient.builder()
+            .baseUrl("http://localhost:8083")
+            .build();
+
+    createInventory(inventoryClient, 501L, 100);
+    createInventory(inventoryClient, 502L, 100);
+    createInventory(inventoryClient, 503L, 100);
+    createInventory(inventoryClient, 601L, 100);
+    createInventory(inventoryClient, 602L, 100);
+    createInventory(inventoryClient, 701L, 100);
+}
+
+private void createInventory(
+        RestClient client,
+        Long productId,
+        int quantity) {
+
+    try {
+        client.post()
+                .uri("/api/v1/inventory")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {
+                            "productId": %d,
+                            "quantity": %d
+                        }
+                        """.formatted(productId, quantity))
+                .retrieve()
+                .toBodilessEntity();
+    } catch (Exception ignored) {
+        // Inventory may already exist from another test run.
+    }
+}
 
     @Test
     void shouldCreateOrderWithCalculatedTotal() {
