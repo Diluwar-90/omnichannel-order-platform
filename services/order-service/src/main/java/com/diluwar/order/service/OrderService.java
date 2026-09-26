@@ -10,6 +10,7 @@ import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.entity.Order;
 import com.diluwar.order.entity.OrderItem;
 import com.diluwar.order.entity.OrderStatus;
+import com.diluwar.order.exception.OrderConfirmationException;
 import com.diluwar.order.repository.OrderRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.data.domain.Page;
@@ -187,9 +188,21 @@ public OrderResponse confirmOrder(Long orderId) {
         );
     }
 
+    PaymentResponse payment =
+            paymentClient.getPaymentByOrderId(orderId);
+
+    if (!"CAPTURED".equals(payment.status())) {
+    throw new OrderConfirmationException(
+            "Order cannot be confirmed because payment status is: "
+                    + payment.status()
+    );
+}
+
     order.setStatus(OrderStatus.CONFIRMED);
     order.setUpdatedAt(Instant.now());
 
     return toResponse(orderRepository.save(order));
 }
+
+
 }

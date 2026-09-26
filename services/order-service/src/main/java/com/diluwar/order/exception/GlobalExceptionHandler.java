@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import com.diluwar.order.exception.InventoryReservationException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -82,6 +81,17 @@ public class GlobalExceptionHandler {
 @ResponseStatus(HttpStatus.CONFLICT)
 public Map<String, Object> handleInventoryReservation(
         InventoryReservationException ex) {
+
+    return response(
+            HttpStatus.CONFLICT.value(),
+            ex.getMessage()
+    );
+}
+
+@ExceptionHandler(OrderConfirmationException.class)
+@ResponseStatus(HttpStatus.CONFLICT)
+public Map<String, Object> handleOrderConfirmation(
+        OrderConfirmationException ex) {
 
     return response(
             HttpStatus.CONFLICT.value(),

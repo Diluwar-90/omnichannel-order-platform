@@ -76,4 +76,13 @@ public ResponseEntity<PaymentResponse> getPayment(
 
         return ResponseEntity.noContent().build();
     }
+
+    @PutMapping("/{id}/confirm")
+    public ResponseEntity<OrderResponse> confirmOrder(
+        @PathVariable Long id) {
+
+    return ResponseEntity.ok(
+            orderService.confirmOrder(id)
+    );
+    }
 }

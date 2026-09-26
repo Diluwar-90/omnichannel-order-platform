@@ -427,4 +427,250 @@ void shouldGetPaymentByOrderIdThroughFullStack() {
     );
     assertEquals("INR", payment.currency());
 }
+
+@Test
+void shouldConfirmOrderWhenPaymentIsCapturedThroughFullStack() {
+
+    String request = """
+            {
+                "customerId": 5001,
+                "items": [
+                    {
+                        "productId": 501,
+                        "quantity": 2,
+                        "unitPrice": 300.00
+                    }
+                ]
+            }
+            """;
+
+    OrderResponse created =
+            restClient()
+                    .post()
+                    .uri("/api/orders")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(created);
+    assertNotNull(created.id());
+
+    PaymentResponse payment =
+            restClient()
+                    .get()
+                    .uri("/api/orders/" + created.id() + "/payment")
+                    .retrieve()
+                    .body(PaymentResponse.class);
+
+    assertNotNull(payment);
+    assertEquals(created.id(), payment.orderId());
+    assertEquals("PENDING", payment.status());
+
+    PaymentResponse authorizedPayment =
+        restClient()
+                .patch()
+                .uri(
+                        "http://localhost:" +
+                        paymentService.getMappedPort(8085) +
+                        "/api/v1/payments/" +
+                        payment.id() +
+                        "/status"
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {
+                            "status": "AUTHORIZED"
+                        }
+                        """)
+                .retrieve()
+                .body(PaymentResponse.class);
+
+assertNotNull(authorizedPayment);
+assertEquals("AUTHORIZED", authorizedPayment.status());
+
+PaymentResponse capturedPayment =
+        restClient()
+                .patch()
+                .uri(
+                        "http://localhost:" +
+                        paymentService.getMappedPort(8085) +
+                        "/api/v1/payments/" +
+                        payment.id() +
+                        "/status"
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {
+                            "status": "CAPTURED"
+                        }
+                        """)
+                .retrieve()
+                .body(PaymentResponse.class);
+
+assertNotNull(capturedPayment);
+assertEquals("CAPTURED", capturedPayment.status());
+
+    OrderResponse confirmed =
+            restClient()
+                    .put()
+                    .uri("/api/orders/" + created.id() + "/confirm")
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(confirmed);
+    assertEquals(created.id(), confirmed.id());
+    assertEquals(
+            OrderStatus.CONFIRMED,
+            confirmed.status()
+    );
+}
+
+@Test
+void shouldConfirmOrderThroughFullStack() {
+
+    String request = """
+            {
+                "customerId": 5001,
+                "items": [
+                    {
+                        "productId": 801,
+                        "quantity": 1,
+                        "unitPrice": 500.00
+                    }
+                ]
+            }
+            """;
+
+    OrderResponse created =
+            restClient()
+                    .post()
+                    .uri("/api/orders")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(created);
+    assertNotNull(created.id());
+
+    assertEquals(
+            OrderStatus.CREATED,
+            created.status()
+    );
+
+    // Payment service
+    RestClient paymentClient =
+            RestClient.builder()
+                    .baseUrl(
+                            "http://localhost:" +
+                            paymentService.getMappedPort(8085)
+                    )
+                    .build();
+
+    // PENDING
+    PaymentResponse payment =
+            paymentClient
+                    .get()
+                    .uri("/api/v1/payments/order/" + created.id())
+                    .retrieve()
+                    .body(PaymentResponse.class);
+
+    assertNotNull(payment);
+    assertEquals("PENDING", payment.status());
+
+    // PENDING -> AUTHORIZED
+    paymentClient
+            .patch()
+            .uri("/api/v1/payments/" + payment.id() + "/status")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body("""
+                    {
+                        "status": "AUTHORIZED"
+                    }
+                    """)
+            .retrieve()
+            .body(PaymentResponse.class);
+
+    // AUTHORIZED -> CAPTURED
+    paymentClient
+            .patch()
+            .uri("/api/v1/payments/" + payment.id() + "/status")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body("""
+                    {
+                        "status": "CAPTURED"
+                    }
+                    """)
+            .retrieve()
+            .body(PaymentResponse.class);
+
+    // Now order can be confirmed
+    OrderResponse confirmed =
+            restClient()
+                    .put()
+                    .uri("/api/orders/" + created.id() + "/confirm")
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(confirmed);
+
+    assertEquals(
+            created.id(),
+            confirmed.id()
+    );
+
+    assertEquals(
+            OrderStatus.CONFIRMED,
+            confirmed.status()
+    );
+}
+
+@Test
+void shouldNotConfirmOrderWhenPaymentIsNotCaptured() {
+
+    String request = """
+            {
+                "customerId": 5002,
+                "items": [
+                    {
+                        "productId": 801,
+                        "quantity": 1,
+                        "unitPrice": 600.00
+                    }
+                ]
+            }
+            """;
+
+    OrderResponse created =
+            restClient()
+                    .post()
+                    .uri("/api/orders")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(created);
+    assertEquals(
+            OrderStatus.CREATED,
+            created.status()
+    );
+
+    // Payment remains PENDING
+
+            // Payment remains PENDING
+
+    var exception = assertThrows(
+        org.springframework.web.client.HttpClientErrorException.Conflict.class,
+        () -> restClient()
+                .put()
+                .uri("/api/orders/" + created.id() + "/confirm")
+                .retrieve()
+                .toBodilessEntity()
+        );
+
+        assertEquals(409, exception.getStatusCode().value());
+}
+
 }

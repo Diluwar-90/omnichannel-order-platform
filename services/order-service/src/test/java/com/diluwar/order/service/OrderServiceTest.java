@@ -5,8 +5,10 @@ import com.diluwar.order.client.PaymentClient;
 import com.diluwar.order.dto.CreateOrderRequest;
 import com.diluwar.order.dto.OrderItemRequest;
 import com.diluwar.order.dto.OrderResponse;
+import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.entity.Order;
 import com.diluwar.order.entity.OrderStatus;
+import com.diluwar.order.exception.OrderConfirmationException;
 import com.diluwar.order.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -572,6 +574,104 @@ void shouldThrowOrderNotFoundExceptionWhenDeletingMissingOrder() {
 
     verify(orderRepository).findById(999L);
     verify(orderRepository, never()).delete(any(Order.class));
+}
+
+@Test
+void shouldConfirmOrderWhenPaymentIsCaptured() {
+
+    Order order = new Order();
+
+    order.setId(500L);
+    order.setCustomerId(12001L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("750.00"));
+
+    Instant now = Instant.now();
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    PaymentResponse payment = new PaymentResponse(
+            1L,
+            500L,
+            new BigDecimal("750.00"),
+            "INR",
+            "CAPTURED",
+            "TXN-500",
+            now,
+            now
+    );
+
+    when(orderRepository.findById(500L))
+            .thenReturn(java.util.Optional.of(order));
+
+    when(paymentClient.getPaymentByOrderId(500L))
+            .thenReturn(payment);
+
+    when(orderRepository.save(order))
+            .thenReturn(order);
+
+    OrderResponse response =
+            orderService.confirmOrder(500L);
+
+    assertNotNull(response);
+    assertEquals(500L, response.id());
+    assertEquals(OrderStatus.CONFIRMED, response.status());
+
+    verify(orderRepository).findById(500L);
+    verify(paymentClient).getPaymentByOrderId(500L);
+    verify(orderRepository).save(order);
+}
+
+@Test
+void shouldNotConfirmOrderWhenPaymentIsNotCaptured() {
+
+    Order order = new Order();
+
+    order.setId(501L);
+    order.setCustomerId(12002L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("500.00"));
+
+    Instant now = Instant.now();
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    PaymentResponse payment = new PaymentResponse(
+            2L,
+            501L,
+            new BigDecimal("500.00"),
+            "INR",
+            "PENDING",
+            null,
+            now,
+            now
+    );
+
+    when(orderRepository.findById(501L))
+            .thenReturn(java.util.Optional.of(order));
+
+    when(paymentClient.getPaymentByOrderId(501L))
+            .thenReturn(payment);
+
+   OrderConfirmationException exception =
+        assertThrows(
+                OrderConfirmationException.class,
+                () -> orderService.confirmOrder(501L)
+        );
+
+    assertEquals(
+            "Order cannot be confirmed because payment status is: PENDING",
+            exception.getMessage()
+    );
+
+    assertEquals(
+            OrderStatus.CREATED,
+            order.getStatus()
+    );
+
+    verify(orderRepository).findById(501L);
+    verify(paymentClient).getPaymentByOrderId(501L);
+    verify(orderRepository, never()).save(any(Order.class));
 }
 
 }
