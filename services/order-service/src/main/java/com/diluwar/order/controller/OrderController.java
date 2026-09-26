@@ -85,4 +85,13 @@ public ResponseEntity<PaymentResponse> getPayment(
             orderService.confirmOrder(id)
     );
     }
+
+    @PutMapping("/{id}/payment-failed")
+public ResponseEntity<OrderResponse> handlePaymentFailure(
+        @PathVariable Long id) {
+
+    return ResponseEntity.ok(
+            orderService.handlePaymentFailure(id)
+    );
+}
 }

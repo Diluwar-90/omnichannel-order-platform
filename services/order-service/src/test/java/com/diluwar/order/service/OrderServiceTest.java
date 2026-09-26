@@ -7,6 +7,7 @@ import com.diluwar.order.dto.OrderItemRequest;
 import com.diluwar.order.dto.OrderResponse;
 import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.entity.Order;
+import com.diluwar.order.entity.OrderItem;
 import com.diluwar.order.entity.OrderStatus;
 import com.diluwar.order.exception.OrderConfirmationException;
 import com.diluwar.order.repository.OrderRepository;
@@ -25,6 +26,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 import org.springframework.data.domain.Page;
@@ -672,6 +675,202 @@ void shouldNotConfirmOrderWhenPaymentIsNotCaptured() {
     verify(orderRepository).findById(501L);
     verify(paymentClient).getPaymentByOrderId(501L);
     verify(orderRepository, never()).save(any(Order.class));
+}
+
+@Test
+void shouldCancelOrderAndReleaseInventoryWhenPaymentFails() {
+
+    Order order = new Order();
+
+    order.setId(502L);
+    order.setCustomerId(12003L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("600.00"));
+
+    Instant now = Instant.now();
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    OrderItem item = new OrderItem();
+    item.setProductId(801L);
+    item.setQuantity(2);
+    item.setUnitPrice(new BigDecimal("300.00"));
+
+    order.getItems().add(item);
+
+    PaymentResponse payment = new PaymentResponse(
+            3L,
+            502L,
+            new BigDecimal("600.00"),
+            "INR",
+            "FAILED",
+            null,
+            now,
+            now
+    );
+
+    when(orderRepository.findById(502L))
+            .thenReturn(java.util.Optional.of(order));
+
+    when(paymentClient.getPaymentByOrderId(502L))
+            .thenReturn(payment);
+
+    when(orderRepository.save(order))
+            .thenReturn(order);
+
+    OrderResponse response =
+            orderService.confirmOrder(502L);
+
+    assertNotNull(response);
+
+    assertEquals(
+            502L,
+            response.id()
+    );
+
+    assertEquals(
+            OrderStatus.CANCELLED,
+            response.status()
+    );
+
+    verify(orderRepository).findById(502L);
+
+    verify(paymentClient)
+            .getPaymentByOrderId(502L);
+
+    verify(inventoryClient)
+            .release(801L, 2);
+
+    verify(orderRepository)
+            .save(order);
+}
+
+@Test
+void shouldNotCancelOrderWhenPaymentIsNotFailed() {
+
+    Order order = new Order();
+
+    order.setId(503L);
+    order.setCustomerId(12004L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("500.00"));
+
+    Instant now = Instant.now();
+
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    PaymentResponse payment = new PaymentResponse(
+            4L,
+            503L,
+            new BigDecimal("500.00"),
+            "INR",
+            "PENDING",
+            null,
+            now,
+            now
+    );
+
+    when(orderRepository.findById(503L))
+            .thenReturn(java.util.Optional.of(order));
+
+    when(paymentClient.getPaymentByOrderId(503L))
+            .thenReturn(payment);
+
+    IllegalStateException exception =
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> orderService.handlePaymentFailure(503L)
+            );
+
+    assertEquals(
+            "Order cannot be cancelled because payment status is: PENDING",
+            exception.getMessage()
+    );
+
+    assertEquals(
+            OrderStatus.CREATED,
+            order.getStatus()
+    );
+
+    verify(orderRepository)
+            .findById(503L);
+
+    verify(paymentClient)
+            .getPaymentByOrderId(503L);
+
+    verify(orderRepository, never())
+            .save(any(Order.class));
+
+    verify(inventoryClient, never())
+            .release(anyLong(), anyInt());
+}
+
+@Test
+void shouldReleaseInventoryForEveryOrderItemWhenPaymentFails() {
+
+    Order order = new Order();
+
+    order.setId(504L);
+    order.setCustomerId(12005L);
+    order.setStatus(OrderStatus.CREATED);
+    order.setTotalAmount(new BigDecimal("1100.00"));
+
+    Instant now = Instant.now();
+
+    order.setCreatedAt(now);
+    order.setUpdatedAt(now);
+
+    OrderItem firstItem = new OrderItem();
+    firstItem.setProductId(801L);
+    firstItem.setQuantity(2);
+    firstItem.setUnitPrice(new BigDecimal("300.00"));
+
+    OrderItem secondItem = new OrderItem();
+    secondItem.setProductId(802L);
+    secondItem.setQuantity(1);
+    secondItem.setUnitPrice(new BigDecimal("500.00"));
+
+    order.setItems(
+            List.of(firstItem, secondItem)
+    );
+
+    PaymentResponse payment = new PaymentResponse(
+            5L,
+            504L,
+            new BigDecimal("1100.00"),
+            "INR",
+            "FAILED",
+            null,
+            now,
+            now
+    );
+
+    when(orderRepository.findById(504L))
+            .thenReturn(java.util.Optional.of(order));
+
+    when(paymentClient.getPaymentByOrderId(504L))
+            .thenReturn(payment);
+
+    when(orderRepository.save(order))
+            .thenReturn(order);
+
+    OrderResponse response =
+            orderService.handlePaymentFailure(504L);
+
+    assertEquals(
+            OrderStatus.CANCELLED,
+            response.status()
+    );
+
+    verify(inventoryClient)
+            .release(801L, 2);
+
+    verify(inventoryClient)
+            .release(802L, 1);
+
+    verify(inventoryClient, times(2))
+            .release(anyLong(), anyInt());
 }
 
 }

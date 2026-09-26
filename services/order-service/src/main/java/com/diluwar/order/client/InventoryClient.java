@@ -20,7 +20,10 @@ public class InventoryClient {
         try {
 
             restClient.post()
-                    .uri("/api/v1/inventory/{productId}/reserve", productId)
+                    .uri(
+                            "/api/v1/inventory/{productId}/reserve",
+                            productId
+                    )
                     .body(new QuantityRequest(quantity))
                     .retrieve()
                     .toBodilessEntity();
@@ -28,7 +31,34 @@ public class InventoryClient {
         } catch (Exception ex) {
 
             throw new InventoryReservationException(
-                    "Unable to reserve inventory for product: " + productId + " - " + ex.getMessage()
+                    "Unable to reserve inventory for product: "
+                            + productId
+                            + " - "
+                            + ex.getMessage()
+            );
+        }
+    }
+
+    public void release(Long productId, Integer quantity) {
+
+        try {
+
+            restClient.post()
+                    .uri(
+                            "/api/v1/inventory/{productId}/release",
+                            productId
+                    )
+                    .body(new QuantityRequest(quantity))
+                    .retrieve()
+                    .toBodilessEntity();
+
+        } catch (Exception ex) {
+
+            throw new InventoryReservationException(
+                    "Unable to release inventory for product: "
+                            + productId
+                            + " - "
+                            + ex.getMessage()
             );
         }
     }

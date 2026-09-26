@@ -191,7 +191,24 @@ public OrderResponse confirmOrder(Long orderId) {
     PaymentResponse payment =
             paymentClient.getPaymentByOrderId(orderId);
 
-    if (!"CAPTURED".equals(payment.status())) {
+if ("FAILED".equals(payment.status())) {
+
+    order.setStatus(OrderStatus.CANCELLED);
+    order.setUpdatedAt(Instant.now());
+
+    for (OrderItem item : order.getItems()) {
+        inventoryClient.release(
+                item.getProductId(),
+                item.getQuantity()
+        );
+    }
+
+    return toResponse(
+            orderRepository.save(order)
+    );
+}
+
+if (!"CAPTURED".equals(payment.status())) {
     throw new OrderConfirmationException(
             "Order cannot be confirmed because payment status is: "
                     + payment.status()
@@ -202,6 +219,61 @@ public OrderResponse confirmOrder(Long orderId) {
     order.setUpdatedAt(Instant.now());
 
     return toResponse(orderRepository.save(order));
+}
+
+@Transactional
+public OrderResponse handlePaymentFailure(Long orderId) {
+
+    Order order = orderRepository.findById(orderId)
+            .orElseThrow(() ->
+                    new RuntimeException(
+                            "Order not found: " + orderId
+                    )
+            );
+
+    PaymentResponse payment =
+            paymentClient.getPaymentByOrderId(orderId);
+
+    if (!"FAILED".equals(payment.status())) {
+        throw new IllegalStateException(
+                "Order cannot be cancelled because payment status is: "
+                        + payment.status()
+        );
+    }
+
+    if (order.getStatus() == OrderStatus.CANCELLED) {
+        return toResponse(order);
+    }
+
+    if (order.getStatus() != OrderStatus.CREATED) {
+        throw new IllegalStateException(
+                "Order cannot be cancelled from status: "
+                        + order.getStatus()
+        );
+    }
+
+    /*
+     * Step 1:
+     * Cancel the order.
+     */
+    order.setStatus(OrderStatus.CANCELLED);
+    order.setUpdatedAt(Instant.now());
+
+    Order savedOrder = orderRepository.save(order);
+
+    /*
+     * Step 2:
+     * Release all previously reserved inventory.
+     */
+    for (OrderItem item : order.getItems()) {
+
+        inventoryClient.release(
+                item.getProductId(),
+                item.getQuantity()
+        );
+    }
+
+    return toResponse(savedOrder);
 }
 
 

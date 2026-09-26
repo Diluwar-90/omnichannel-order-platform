@@ -673,4 +673,125 @@ void shouldNotConfirmOrderWhenPaymentIsNotCaptured() {
         assertEquals(409, exception.getStatusCode().value());
 }
 
+@Test
+void shouldCancelOrderAndReleaseInventoryWhenPaymentFailsThroughFullStack() {
+
+    String request = """
+            {
+                "customerId": 5003,
+                "items": [
+                    {
+                        "productId": 801,
+                        "quantity": 2,
+                        "unitPrice": 500.00
+                    }
+                ]
+            }
+            """;
+
+    /*
+     * 1. Create order
+     */
+    OrderResponse created =
+            restClient()
+                    .post()
+                    .uri("/api/orders")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(created);
+    assertNotNull(created.id());
+
+    assertEquals(
+            OrderStatus.CREATED,
+            created.status()
+    );
+
+    /*
+     * 2. Verify payment is PENDING
+     */
+    RestClient paymentClient =
+            RestClient.builder()
+                    .baseUrl(
+                            "http://localhost:" +
+                            paymentService.getMappedPort(8085)
+                    )
+                    .build();
+
+    PaymentResponse payment =
+            paymentClient
+                    .get()
+                    .uri(
+                            "/api/v1/payments/order/" +
+                            created.id()
+                    )
+                    .retrieve()
+                    .body(PaymentResponse.class);
+
+    assertNotNull(payment);
+
+    assertEquals(
+            "PENDING",
+            payment.status()
+    );
+
+    /*
+     * 3. Change payment PENDING -> FAILED
+     */
+    PaymentResponse failedPayment =
+            paymentClient
+                    .patch()
+                    .uri(
+                            "/api/v1/payments/" +
+                            payment.id() +
+                            "/status"
+                    )
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("""
+                            {
+                                "status": "FAILED"
+                            }
+                            """)
+                    .retrieve()
+                    .body(PaymentResponse.class);
+
+    assertNotNull(failedPayment);
+
+    assertEquals(
+            "FAILED",
+            failedPayment.status()
+    );
+
+    /*
+     * 4. Trigger payment failure compensation
+     */
+    OrderResponse cancelled =
+            restClient()
+                    .put()
+                    .uri(
+                            "/api/orders/" +
+                            created.id() +
+                            "/payment-failed"
+                    )
+                    .retrieve()
+                    .body(OrderResponse.class);
+
+    assertNotNull(cancelled);
+
+    assertEquals(
+            created.id(),
+            cancelled.id()
+    );
+
+    /*
+     * 5. Order must be CANCELLED
+     */
+    assertEquals(
+            OrderStatus.CANCELLED,
+            cancelled.status()
+    );
+}
+
 }
