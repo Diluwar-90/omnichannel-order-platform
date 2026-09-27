@@ -27,6 +27,10 @@ dependencies {
 
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.13'
 
+    implementation 'org.springframework.boot:spring-boot-starter-kafka'
+     // Kafka
+    implementation 'org.springframework.kafka:spring-kafka'
+
     // Lombok
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'

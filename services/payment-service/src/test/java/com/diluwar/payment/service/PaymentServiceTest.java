@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
+import com.diluwar.payment.event.PaymentEventProducer;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentServiceTest {
@@ -33,6 +34,9 @@ class PaymentServiceTest {
 
     @Mock
     private PaymentMapper paymentMapper;
+
+    @Mock
+    private PaymentEventProducer paymentEventProducer;
 
     @InjectMocks
     private PaymentService paymentService;
@@ -130,6 +134,8 @@ class PaymentServiceTest {
         Payment existingPayment = new Payment();
         existingPayment.setId(1L);
         existingPayment.setOrderId(1001L);
+        existingPayment.setAmount(new BigDecimal("999.99"));
+        existingPayment.setCurrency("INR");
 
         when(paymentRepository.findByOrderId(1001L))
                 .thenReturn(Optional.of(existingPayment));

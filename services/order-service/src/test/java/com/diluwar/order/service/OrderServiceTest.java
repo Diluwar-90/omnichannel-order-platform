@@ -9,6 +9,7 @@ import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.entity.Order;
 import com.diluwar.order.entity.OrderItem;
 import com.diluwar.order.entity.OrderStatus;
+import com.diluwar.order.event.OrderEventProducer;
 import com.diluwar.order.exception.OrderConfirmationException;
 import com.diluwar.order.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,12 +52,16 @@ class OrderServiceTest {
     @Mock
     private PaymentClient paymentClient;
 
+    @Mock
+    private OrderEventProducer orderEventProducer;
+
     @BeforeEach
     void setUp() {
         orderService = new OrderService(
         orderRepository,
         inventoryClient,
-        paymentClient
+        paymentClient,
+        orderEventProducer
   );
     }
 

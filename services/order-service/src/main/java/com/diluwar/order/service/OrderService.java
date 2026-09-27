@@ -10,6 +10,8 @@ import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.entity.Order;
 import com.diluwar.order.entity.OrderItem;
 import com.diluwar.order.entity.OrderStatus;
+import com.diluwar.order.event.OrderCreatedEvent;
+import com.diluwar.order.event.OrderEventProducer;
 import com.diluwar.order.exception.OrderConfirmationException;
 import com.diluwar.order.repository.OrderRepository;
 import jakarta.transaction.Transactional;
@@ -27,15 +29,18 @@ public class OrderService {
     private final OrderRepository orderRepository;
 private final InventoryClient inventoryClient;
 private final PaymentClient paymentClient;
+private final OrderEventProducer orderEventProducer;            
 
 public OrderService(
         OrderRepository orderRepository,
         InventoryClient inventoryClient,
-        PaymentClient paymentClient) {
+        PaymentClient paymentClient,
+        OrderEventProducer orderEventProducer) {
 
     this.orderRepository = orderRepository;
     this.inventoryClient = inventoryClient;
     this.paymentClient = paymentClient;
+    this.orderEventProducer = orderEventProducer;
     }
 
 
@@ -80,6 +85,15 @@ public OrderService(
         order.setTotalAmount(totalAmount);
 
         Order savedOrder = orderRepository.save(order);
+
+        orderEventProducer.publishOrderCreated(
+        new OrderCreatedEvent(
+                savedOrder.getId(),
+                savedOrder.getCustomerId(),
+                savedOrder.getTotalAmount(),
+                savedOrder.getCreatedAt()
+        )
+        );
 
         paymentClient.createPayment(
         savedOrder.getId(),
