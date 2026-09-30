@@ -8,6 +8,7 @@ import com.diluwar.auth.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -33,4 +34,9 @@ public class AuthController {
 
         return authService.login(request);
     }
+
+    @GetMapping("/me")
+    public String me(Authentication authentication) {
+    return "Authenticated as: " + authentication.getName();
+}
 }
