@@ -52,28 +52,28 @@ public class AuthService {
 
     public LoginResponse login(LoginRequest request) {
 
-    User user = userRepository.findByEmail(request.getEmail())
-            .orElseThrow(() ->
-                    new IllegalArgumentException("Invalid email or password"));
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() ->
+                        new IllegalArgumentException("Invalid email or password"));
 
-    if (!passwordEncoder.matches(
-            request.getPassword(),
-            user.getPassword())) {
+        if (!passwordEncoder.matches(
+                request.getPassword(),
+                user.getPassword())) {
 
-        throw new IllegalArgumentException("Invalid email or password");
-    }
+            throw new IllegalArgumentException("Invalid email or password");
+        }
 
-    String token = jwtService.generateToken(
+         String token = jwtService.generateToken(
             user.getEmail(),
             user.getRole()
-    );
+        );
 
-    return new LoginResponse(
-            user.getId(),
-            user.getName(),
-            user.getEmail(),
-            user.getRole(),
-            token
-    );
-}
+       return new LoginResponse(
+        user.getId(),
+        user.getName(),
+        user.getEmail(),
+        user.getRole(),
+        token
+);
+    }
 }
