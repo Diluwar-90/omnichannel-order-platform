@@ -8,6 +8,7 @@ import com.diluwar.auth.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 
 @RestController
@@ -39,4 +40,11 @@ public class AuthController {
     public String me(Authentication authentication) {
     return "Authenticated as: " + authentication.getName();
 }
+
+@GetMapping("/admin")
+@PreAuthorize("hasRole('ADMIN')")
+public String admin() {
+    return "Admin access granted";
+}
+
 }
