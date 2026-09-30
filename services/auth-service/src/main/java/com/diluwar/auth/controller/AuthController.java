@@ -1,5 +1,7 @@
 package com.diluwar.auth.controller;
 
+import com.diluwar.auth.dto.LoginRequest;
+import com.diluwar.auth.dto.LoginResponse;
 import com.diluwar.auth.dto.RegisterRequest;
 import com.diluwar.auth.dto.RegisterResponse;
 import com.diluwar.auth.service.AuthService;
@@ -23,5 +25,12 @@ public class AuthController {
             @Valid @RequestBody RegisterRequest request) {
 
         return authService.register(request);
+    }
+
+    @PostMapping("/login")
+    public LoginResponse login(
+            @Valid @RequestBody LoginRequest request) {
+
+        return authService.login(request);
     }
 }

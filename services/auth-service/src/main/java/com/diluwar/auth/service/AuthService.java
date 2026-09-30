@@ -1,24 +1,30 @@
 package com.diluwar.auth.service;
 
+import com.diluwar.auth.dto.LoginRequest;
+import com.diluwar.auth.dto.LoginResponse;
 import com.diluwar.auth.dto.RegisterRequest;
 import com.diluwar.auth.dto.RegisterResponse;
 import com.diluwar.auth.entity.User;
 import com.diluwar.auth.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import com.diluwar.auth.service.JwtService;
 
 @Service
 public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
     public AuthService(
-            UserRepository userRepository,
-            PasswordEncoder passwordEncoder) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-    }
+        UserRepository userRepository,
+        PasswordEncoder passwordEncoder,
+        JwtService jwtService) {
+    this.userRepository = userRepository;
+    this.passwordEncoder = passwordEncoder;
+    this.jwtService = jwtService;
+}
 
     public RegisterResponse register(RegisterRequest request) {
 
@@ -43,4 +49,31 @@ public class AuthService {
                 savedUser.getRole()
         );
     }
+
+    public LoginResponse login(LoginRequest request) {
+
+    User user = userRepository.findByEmail(request.getEmail())
+            .orElseThrow(() ->
+                    new IllegalArgumentException("Invalid email or password"));
+
+    if (!passwordEncoder.matches(
+            request.getPassword(),
+            user.getPassword())) {
+
+        throw new IllegalArgumentException("Invalid email or password");
+    }
+
+    String token = jwtService.generateToken(
+            user.getEmail(),
+            user.getRole()
+    );
+
+    return new LoginResponse(
+            user.getId(),
+            user.getName(),
+            user.getEmail(),
+            user.getRole(),
+            token
+    );
+}
 }
