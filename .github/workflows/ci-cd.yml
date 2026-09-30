@@ -1,0 +1,198 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      deploy_to_aws:
+        description: 'Attempt deployment to AWS (requires AWS_ROLE_TO_ASSUME secret)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write   # Required for AWS OIDC authentication
+  contents: read    # Required for actions/checkout
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+jobs:
+  # ===========================================================================
+  # Job 1: Automated Test Matrix across all 7 microservices
+  # ===========================================================================
+  test:
+    name: Test (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - auth-service
+          - product-service
+          - inventory-service
+          - order-service
+          - payment-service
+          - notification-service
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x services/${{ matrix.service }}/gradlew
+
+      - name: Run Unit & Integration Tests
+        run: ./services/${{ matrix.service }}/gradlew -p services/${{ matrix.service }} test --no-daemon
+
+      - name: Archive Test Results (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.service }}
+          path: services/${{ matrix.service }}/build/reports/tests/test/
+          retention-days: 7
+
+  # ===========================================================================
+  # Job 2: Build Spring Boot Executables & Validate Container Packaging
+  # ===========================================================================
+  build-and-package:
+    name: Build & Package (${{ matrix.service }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - auth-service
+          - product-service
+          - inventory-service
+          - order-service
+          - payment-service
+          - notification-service
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x services/${{ matrix.service }}/gradlew
+
+      - name: Build Spring Boot Executable JAR
+        run: ./services/${{ matrix.service }}/gradlew -p services/${{ matrix.service }} bootJar -x test --no-daemon
+
+      - name: Build Local Docker Image
+        run: |
+          docker build \
+            -t ${{ matrix.service }}:${{ github.sha }} \
+            -t ${{ matrix.service }}:latest \
+            -f services/${{ matrix.service }}/Dockerfile \
+            services/${{ matrix.service }}
+
+      - name: Verify Docker Image
+        run: docker images ${{ matrix.service }}
+
+  # ===========================================================================
+  # Job 3: AWS Deployment (ECR Registry & Container Deployment)
+  # ===========================================================================
+  deploy-aws:
+    name: Deploy to AWS
+    needs: [test, build-and-package]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check AWS Configuration Status
+        id: check-aws
+        run: |
+          if [ -z "${{ secrets.AWS_ROLE_TO_ASSUME }}" ]; then
+            echo "aws_configured=false" >> $GITHUB_OUTPUT
+            echo "::notice title=AWS Deployment Paused::AWS_ROLE_TO_ASSUME secret is not configured in this repository. CI tests and Docker builds completed successfully! To activate AWS deployment, follow instructions in docs/AWS_CICD_SETUP.md."
+          else
+            echo "aws_configured=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        if: steps.check-aws.outputs.aws_configured == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Log in to Amazon ECR
+        if: steps.check-aws.outputs.aws_configured == 'true'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up JDK 21 for release build
+        if: steps.check-aws.outputs.aws_configured == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Build and Push Docker Images to Amazon ECR
+        if: steps.check-aws.outputs.aws_configured == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          SERVICES=("api-gateway" "auth-service" "product-service" "inventory-service" "order-service" "payment-service" "notification-service")
+          for svc in "${SERVICES[@]}"; do
+            echo "==========================================="
+            echo "Building and Pushing: $svc"
+            echo "==========================================="
+            chmod +x services/$svc/gradlew
+            ./services/$svc/gradlew -p services/$svc bootJar -x test --no-daemon
+            
+            docker build \
+              -t $ECR_REGISTRY/$svc:$IMAGE_TAG \
+              -t $ECR_REGISTRY/$svc:latest \
+              -f services/$svc/Dockerfile \
+              services/$svc
+
+            docker push $ECR_REGISTRY/$svc:$IMAGE_TAG
+            docker push $ECR_REGISTRY/$svc:latest
+          done
+
+      - name: Generate CI/CD Summary
+        run: |
+          echo "### CI/CD Pipeline Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit SHA:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Matrix:** ✅ Passed across all 7 microservices" >> $GITHUB_STEP_SUMMARY
+          echo "- **Container Builds:** ✅ Validated across all 7 microservices" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check-aws.outputs.aws_configured }}" = "true" ]; then
+            echo "- **AWS Deployment:** ✅ Images pushed to Amazon ECR in \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **AWS Deployment:** ⏸️ Skipped (awaiting \`AWS_ROLE_TO_ASSUME\` secret)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Setup Documentation:** Refer to \`docs/AWS_CICD_SETUP.md\` to connect your AWS Account via OIDC." >> $GITHUB_STEP_SUMMARY
+          fi
