@@ -21,19 +21,22 @@ spring:
     default-schema: order_schema
 
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
 
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-
+      properties:
+        spring.json.type.mapping: orderCreated:com.diluwar.order.event.OrderCreatedEvent,paymentCaptured:com.diluwar.order.event.PaymentCapturedEvent
+        spring.json.add.type.headers: false
     consumer:
       group-id: order-service
-      auto-offset-reset: latest
+      auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: com.diluwar.order.event,com.diluwar.payment.event
+        spring.json.use.type.headers: false
+        spring.json.trusted.packages: "*"
         spring.json.value.default.type: com.diluwar.order.event.PaymentCapturedEvent
 
 server:

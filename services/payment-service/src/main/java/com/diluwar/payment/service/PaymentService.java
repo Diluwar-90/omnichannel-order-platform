@@ -7,6 +7,8 @@ import com.diluwar.payment.entity.Payment;
 import com.diluwar.payment.entity.PaymentStatus;
 import com.diluwar.payment.event.PaymentCapturedEvent;
 import com.diluwar.payment.event.PaymentEventProducer;
+import com.diluwar.payment.event.PaymentFailedEvent;
+import com.diluwar.payment.event.PaymentRefundedEvent;
 import com.diluwar.payment.exception.InvalidPaymentStatusException;
 import com.diluwar.payment.exception.PaymentAlreadyExistsException;
 import com.diluwar.payment.exception.PaymentNotFoundException;
@@ -40,7 +42,7 @@ public class PaymentService {
 
         if (existingPayment != null) {
 
-            if (!existingPayment.getAmount().equals(request.getAmount())
+            if (existingPayment.getAmount().compareTo(request.getAmount()) != 0
                     || !existingPayment.getCurrency().equals(request.getCurrency())) {
 
                 throw new PaymentAlreadyExistsException(request.getOrderId());
@@ -114,6 +116,33 @@ public class PaymentService {
 
             paymentEventProducer.publishPaymentCaptured(
                     new PaymentCapturedEvent(
+                            savedPayment.getId(),
+                            savedPayment.getOrderId(),
+                            savedPayment.getAmount(),
+                            savedPayment.getCurrency(),
+                            savedPayment.getTransactionId(),
+                            savedPayment.getUpdatedAt()
+                    )
+            );
+        }
+
+        if (request.getStatus() == PaymentStatus.FAILED) {
+
+            paymentEventProducer.publishPaymentFailed(
+                    new PaymentFailedEvent(
+                            savedPayment.getId(),
+                            savedPayment.getOrderId(),
+                            savedPayment.getAmount(),
+                            savedPayment.getCurrency(),
+                            savedPayment.getUpdatedAt()
+                    )
+            );
+        }
+
+        if (request.getStatus() == PaymentStatus.REFUNDED) {
+
+            paymentEventProducer.publishPaymentRefunded(
+                    new PaymentRefundedEvent(
                             savedPayment.getId(),
                             savedPayment.getOrderId(),
                             savedPayment.getAmount(),

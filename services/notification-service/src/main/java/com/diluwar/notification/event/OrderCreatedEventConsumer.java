@@ -10,28 +10,30 @@ import java.time.Instant;
 
 @Component
 @RequiredArgsConstructor
-public class PaymentCapturedEventConsumer {
+public class OrderCreatedEventConsumer {
 
     private final NotificationService notificationService;
 
     @KafkaListener(
-            topics = "payment.captured",
+            topics = "order.created",
             groupId = "notification-service",
-            containerFactory = "paymentCapturedKafkaListenerContainerFactory"
+            containerFactory = "orderCreatedKafkaListenerContainerFactory"
     )
-    public void handlePaymentCaptured(PaymentCapturedEvent event) {
+    public void handleOrderCreated(OrderCreatedEvent event) {
 
         System.out.println(
-        ">>> PAYMENT CAPTURED EVENT RECEIVED: " + event
+                "Order created event received: orderId="
+                        + event.orderId()
+                        + ", customerId="
+                        + event.customerId()
         );
 
         Notification notification = new Notification();
-
-        notification.setCustomerId(0L);
+        notification.setCustomerId(event.customerId());
         notification.setOrderId(event.orderId());
-        notification.setType("PAYMENT_CAPTURED");
+        notification.setType("ORDER_CREATED");
         notification.setMessage(
-                "Payment captured successfully for order " + event.orderId()
+                "Order created successfully for order " + event.orderId()
         );
         notification.setStatus("UNREAD");
         notification.setCreatedAt(Instant.now());

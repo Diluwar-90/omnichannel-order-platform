@@ -3,16 +3,7 @@ spring:
     name: notification-service
 
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-
-    consumer:
-      group-id: notification-service
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: com.diluwar.notification.event
-        spring.json.value.default.type: com.diluwar.notification.event.PaymentCapturedEvent
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
 
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/notification_db}

@@ -95,12 +95,6 @@ public OrderService(
         )
         );
 
-        paymentClient.createPayment(
-        savedOrder.getId(),
-        savedOrder.getTotalAmount(),
-        "INR"
-);
-
         return toResponse(savedOrder);
     }
 

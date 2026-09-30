@@ -36,6 +36,11 @@ class OrderServiceApplicationTests {
                 "spring.datasource.password",
                 postgres::getPassword
         );
+
+        registry.add(
+            "spring.kafka.bootstrap-servers",
+            () -> "localhost:9094"
+        );
     }
 
     @Test
