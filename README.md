@@ -42,9 +42,10 @@ An enterprise-grade, distributed **Omnichannel Order Processing Platform** built
 - **Choreographed Event-Driven Saga**: Asynchronous distributed transaction management using **Apache Kafka** to maintain eventual consistency without distributed locking bottlenecks.
 - **Unified Edge Routing**: **Spring Cloud Gateway (WebFlux)** serving as the non-blocking API Gateway reverse proxy for unified traffic routing, CORS policies, and rate-limiting readiness.
 - **Enterprise Security**: Zero-trust authentication via stateless **JWT tokens**, BCrypt password hashing, and granular **Role-Based Access Control (RBAC)**.
+- **Lean, Hardened Production Containers**: Built on `eclipse-temurin:21-jre-alpine` (~95MB image footprint), running with least-privilege `appuser` non-root security and JVM container ergonomics (`-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0`) to eliminate container OOM kills.
 - **Reliable Data Migrations**: Automated, version-controlled relational schema migrations using **Flyway**.
-- **Real-World Integration Testing**: Comprehensive test suites powered by **Testcontainers** running ephemeral PostgreSQL and Kafka instances.
-- **Secure Cloud Native CI/CD**: Automated GitHub Actions pipelines featuring parallel test and build matrices, multi-stage container packaging, and **keyless AWS OIDC authentication** to Amazon ECR.
+- **Hermetic Integration Testing**: 100% self-contained test suites powered by **Spring Boot Testcontainers** (ephemeral PostgreSQL 17 and Apache Kafka Native) requiring zero pre-running host dependencies in CI.
+- **Secure Cloud Native CI/CD**: Automated GitHub Actions pipelines featuring parallel test matrices, automated dependency container builds, and **keyless AWS OIDC authentication** to Amazon ECR and Amazon ECS Fargate.
 
 ---
 
@@ -259,14 +260,14 @@ The platform implements **Spring Security 6** with **stateless JWT tokens**:
 
 | Domain | Technologies |
 | :--- | :--- |
-| **Language & Runtimes** | Java 21 (OpenJDK / Eclipse Temurin) |
+| **Language & Runtimes** | Java 21 (OpenJDK / Eclipse Temurin Alpine JRE) |
 | **Frameworks** | Spring Boot 4.x / 3.x, Spring Cloud Gateway (WebFlux), Spring Security, Spring Data JPA |
 | **Messaging & Streaming** | Apache Kafka 4.1.0 (KRaft mode, zero ZooKeeper dependency) |
 | **Databases & Migrations**| PostgreSQL 17, Flyway Database Migrations |
 | **Build & Tooling** | Gradle 8.x / 9.x Wrapper, Project Lombok, Jackson |
-| **Testing** | JUnit 5, Mockito, AssertJ, Spring Boot Test, Testcontainers (PostgreSQL, Kafka) |
-| **Containerization** | Docker, Multi-service Docker Compose |
-| **DevOps & Cloud** | GitHub Actions CI/CD, AWS OIDC (IAM AssumeRoleWithWebIdentity), Amazon ECR |
+| **Testing & Quality** | JUnit 5, Mockito, AssertJ, Spring Boot Test, Testcontainers (PostgreSQL 17, Kafka Native) |
+| **Containerization** | Docker (Alpine JRE, Non-root `appuser`, JVM Container Ergonomics), Docker Compose |
+| **DevOps & Cloud** | GitHub Actions CI/CD, AWS OIDC (IAM AssumeRoleWithWebIdentity), Amazon ECR, Amazon ECS Fargate |
 
 ---
 
@@ -335,17 +336,21 @@ docker compose up -d --build
 
 ## Testing
 
-The project incorporates extensive unit and integration tests utilizing **Testcontainers** for real PostgreSQL and Kafka instances.
+The project incorporates comprehensive unit and integration testing designed for **100% hermetic isolation** using **Testcontainers**. Tests do not rely on pre-running host databases or Kafka brokers; ephemeral instances spin up dynamically during test execution.
+
+- **Unit Tests**: Fast, isolated tests mocking downstream boundaries with Mockito.
+- **Integration Tests**: Full Spring Boot test contexts with `@ServiceConnection` dynamically injecting connection parameters for PostgreSQL 17 and Apache Kafka Native.
+- **Cross-Service Testing**: End-to-end integration tests (e.g. `OrderIntegrationTest`) validate distributed communication with containerized downstream dependencies (`inventory-service:test`, `payment-service:test`).
 
 ```bash
-# Run tests across all microservices
+# Run tests across all microservices in parallel
 for svc in api-gateway auth-service product-service inventory-service order-service payment-service notification-service; do
   echo "Testing $svc..."
   ./services/$svc/gradlew -p services/$svc test --no-daemon
 done
 
-# Run tests for a specific service (e.g. auth-service)
-./services/auth-service/gradlew -p services/auth-service test
+# Run tests for a specific service (e.g. order-service)
+./services/order-service/gradlew -p services/order-service test
 ```
 
 Test reports are generated in:
