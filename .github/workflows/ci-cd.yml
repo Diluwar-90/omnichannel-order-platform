@@ -55,6 +55,15 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x services/${{ matrix.service }}/gradlew
 
+      - name: Build container dependencies for Order Integration Tests
+        if: matrix.service == 'order-service'
+        run: |
+          chmod +x services/inventory-service/gradlew services/payment-service/gradlew
+          ./services/inventory-service/gradlew -p services/inventory-service bootJar -x test --no-daemon
+          docker build -t inventory-service:test -f services/inventory-service/Dockerfile services/inventory-service
+          ./services/payment-service/gradlew -p services/payment-service bootJar -x test --no-daemon
+          docker build -t payment-service:test -f services/payment-service/Dockerfile services/payment-service
+
       - name: Run Unit & Integration Tests
         run: ./services/${{ matrix.service }}/gradlew -p services/${{ matrix.service }} test --no-daemon
 
