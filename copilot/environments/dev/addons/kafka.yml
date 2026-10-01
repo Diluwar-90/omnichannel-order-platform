@@ -1,0 +1,44 @@
+Parameters:
+  App:
+    Type: String
+    Description: Your application's name.
+  Env:
+    Type: String
+    Description: The environment name your service, job, or workflow is being deployed to.
+
+Resources:
+  MSKSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Inbound access for MSK Serverless cluster
+      VpcId:
+        Fn::ImportValue: !Sub "${App}-${Env}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 9098
+          ToPort: 9098
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub "${App}-${Env}-EnvironmentSecurityGroup"
+
+  MSKServerlessCluster:
+    Type: AWS::MSK::ServerlessCluster
+    Properties:
+      ClusterName: !Sub "${App}-${Env}-kafka"
+      ClientAuthentication:
+        Sasl:
+          Iam:
+            Enabled: true
+      VpcConfigs:
+        - SubnetIds:
+            Fn::Split:
+              - ","
+              - Fn::ImportValue: !Sub "${App}-${Env}-PrivateSubnets"
+          SecurityGroups:
+            - !Ref MSKSecurityGroup
+
+Outputs:
+  MSKClusterArn:
+    Description: Amazon MSK Serverless Cluster ARN
+    Value: !GetAtt MSKServerlessCluster.Arn
+    Export:
+      Name: !Sub "${App}-${Env}-MSKClusterArn"

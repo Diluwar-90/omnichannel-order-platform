@@ -20,6 +20,7 @@ permissions:
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+  ECS_CLUSTER: ${{ vars.ECS_CLUSTER || 'omnichannel-dev' }}
 
 jobs:
   # ===========================================================================
@@ -183,6 +184,64 @@ jobs:
             docker push $ECR_REGISTRY/$svc:latest
           done
 
+      - name: Check Amazon ECS Cluster Status
+        if: steps.check-aws.outputs.aws_configured == 'true'
+        id: check-ecs
+        run: |
+          CLUSTER_NAME="${{ env.ECS_CLUSTER }}"
+          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          if aws ecs describe-clusters --clusters "$CLUSTER_NAME" --query "clusters[?status=='ACTIVE'].clusterName" --output text | grep -q "$CLUSTER_NAME"; then
+            echo "ecs_active=true" >> $GITHUB_OUTPUT
+            echo "ECS Cluster '$CLUSTER_NAME' is active. Proceeding with service rolling updates."
+          else
+            echo "ecs_active=false" >> $GITHUB_OUTPUT
+            echo "::notice title=ECS Rolling Deployment Paused::ECS cluster '$CLUSTER_NAME' was not found or is inactive. Container images were successfully pushed to Amazon ECR. Deploy your cluster using AWS Copilot (docs/AWS_COPILOT_ECS_DEPLOYMENT.md) to enable automatic rolling updates."
+          fi
+
+      - name: Render API Gateway Task Definition
+        if: steps.check-aws.outputs.aws_configured == 'true' && steps.check-ecs.outputs.ecs_active == 'true'
+        id: render-api-gateway
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: infrastructure/ecs/task-definitions/api-gateway.json
+          container-name: api-gateway
+          image: ${{ steps.login-ecr.outputs.registry }}/api-gateway:${{ github.sha }}
+
+      - name: Deploy API Gateway to Amazon ECS
+        if: steps.check-aws.outputs.aws_configured == 'true' && steps.check-ecs.outputs.ecs_active == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-api-gateway.outputs.task-definition }}
+          service: api-gateway
+          cluster: ${{ steps.check-ecs.outputs.cluster_name }}
+          wait-for-service-stability: false
+
+      - name: Deploy Backend Services to Amazon ECS
+        if: steps.check-aws.outputs.aws_configured == 'true' && steps.check-ecs.outputs.ecs_active == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          CLUSTER: ${{ steps.check-ecs.outputs.cluster_name }}
+        run: |
+          BACKEND_SERVICES=("auth-service" "product-service" "inventory-service" "order-service" "payment-service" "notification-service")
+          for svc in "${BACKEND_SERVICES[@]}"; do
+            echo "==============================================="
+            echo "Deploying Backend Service: $svc"
+            echo "==============================================="
+            sed -e "s|<IMAGE1_NAME>|$ECR_REGISTRY/$svc:$IMAGE_TAG|g" \
+                infrastructure/ecs/task-definitions/$svc.json > /tmp/$svc-rendered.json
+
+            NEW_TASK_DEF=$(aws ecs register-task-definition --cli-input-json file:///tmp/$svc-rendered.json --query 'taskDefinition.taskDefinitionArn' --output text)
+            echo "Registered task definition: $NEW_TASK_DEF"
+
+            if aws ecs describe-services --cluster "$CLUSTER" --services "$svc" --query "services[?status=='ACTIVE'].serviceName" --output text | grep -q "$svc"; then
+              aws ecs update-service --cluster "$CLUSTER" --service "$svc" --task-definition "$NEW_TASK_DEF" --force-new-deployment
+              echo "Dispatched rolling update for service: $svc"
+            else
+              echo "Service $svc not currently active in cluster $CLUSTER. Skipping service update."
+            fi
+          done
+
       - name: Generate CI/CD Summary
         run: |
           echo "### CI/CD Pipeline Summary 🚀" >> $GITHUB_STEP_SUMMARY
@@ -191,7 +250,12 @@ jobs:
           echo "- **Test Matrix:** ✅ Passed across all 7 microservices" >> $GITHUB_STEP_SUMMARY
           echo "- **Container Builds:** ✅ Validated across all 7 microservices" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.check-aws.outputs.aws_configured }}" = "true" ]; then
-            echo "- **AWS Deployment:** ✅ Images pushed to Amazon ECR in \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Amazon ECR:** ✅ Images pushed to registry in \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ steps.check-ecs.outputs.ecs_active }}" = "true" ]; then
+              echo "- **Amazon ECS Deployment:** 🚀 Rolling deployment dispatched to cluster \`${{ steps.check-ecs.outputs.cluster_name }}\`" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Amazon ECS Deployment:** ⏸️ Cluster not active. Provision via AWS Copilot to enable live updates." >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "- **AWS Deployment:** ⏸️ Skipped (awaiting \`AWS_ROLE_TO_ASSUME\` secret)" >> $GITHUB_STEP_SUMMARY
             echo "- **Setup Documentation:** Refer to \`docs/AWS_CICD_SETUP.md\` to connect your AWS Account via OIDC." >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,37 @@
+{
+  "family": "order-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "order-service",
+      "image": "<IMAGE1_NAME>",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8084,
+          "hostPort": 8084,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/order-service",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      },
+      "environment": [
+        { "name": "SERVER_PORT", "value": "8084" },
+        { "name": "INVENTORY_SERVICE_URL", "value": "http://inventory-service.omnichannel.local:8083" },
+        { "name": "PAYMENT_SERVICE_URL", "value": "http://payment-service.omnichannel.local:8085" }
+      ]
+    }
+  ]
+}

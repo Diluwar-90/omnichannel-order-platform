@@ -1,0 +1,11 @@
+# Environment manifest for dev (Cost-Optimized)
+name: dev
+type: Environment
+
+# Cost-optimized network: Uses 1 NAT Gateway instead of 1 per AZ
+network:
+  vpc:
+    nat: 1
+
+observability:
+  container_insights: true

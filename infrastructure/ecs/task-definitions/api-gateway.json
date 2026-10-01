@@ -1,0 +1,41 @@
+{
+  "family": "api-gateway",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "api-gateway",
+      "image": "<IMAGE1_NAME>",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/api-gateway",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      },
+      "environment": [
+        { "name": "SERVER_PORT", "value": "8080" },
+        { "name": "ORDER_SERVICE_URL", "value": "http://order-service.omnichannel.local:8084" },
+        { "name": "PRODUCT_SERVICE_URL", "value": "http://product-service.omnichannel.local:8082" },
+        { "name": "INVENTORY_SERVICE_URL", "value": "http://inventory-service.omnichannel.local:8083" },
+        { "name": "PAYMENT_SERVICE_URL", "value": "http://payment-service.omnichannel.local:8085" },
+        { "name": "NOTIFICATION_SERVICE_URL", "value": "http://notification-service.omnichannel.local:8086" },
+        { "name": "AUTH_SERVICE_URL", "value": "http://auth-service.omnichannel.local:8081" }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,8 @@
 [![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-4.1.0%20(KRaft)-black.svg?logo=apachekafka&logoColor=white)](https://kafka.apache.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-blue.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
+[![AWS ECS Fargate](https://img.shields.io/badge/AWS-ECS%20Fargate-FF9900.svg?logo=amazonaws&logoColor=white)](docs/AWS_COPILOT_ECS_DEPLOYMENT.md)
+[![AWS Copilot](https://img.shields.io/badge/AWS-Copilot%20CLI-blueviolet.svg?logo=amazonaws&logoColor=white)](docs/AWS_COPILOT_ECS_DEPLOYMENT.md)
 [![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF.svg?logo=githubactions&logoColor=white)](.github/workflows/ci-cd.yml)
 [![AWS OIDC](https://img.shields.io/badge/AWS-ECR%20%7C%20OIDC-FF9900.svg?logo=amazonaws&logoColor=white)](docs/AWS_CICD_SETUP.md)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
@@ -358,18 +360,20 @@ services/<service-name>/build/reports/tests/test/index.html
 Continuous Integration and Continuous Deployment are managed via **GitHub Actions** ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)):
 
 ```
-┌─────────────────┐       ┌────────────────────────┐       ┌─────────────────────────┐
-│ Job 1: Test     │  ──▶  │ Job 2: Build & Package │  ──▶  │ Job 3: Deploy to AWS    │
-│ (7 Services in  │       │ (Compile JAR & Build   │       │ (OIDC Auth -> Push      │
-│  Parallel)      │       │  Docker Containers)    │       │  Images to Amazon ECR)  │
-└─────────────────┘       └────────────────────────┘       └─────────────────────────┘
+┌─────────────────┐       ┌────────────────────────┐       ┌────────────────────────┐       ┌─────────────────────────┐
+│ Job 1: Test     │  ──▶  │ Job 2: Build & Package │  ──▶  │ Job 3: Amazon ECR Push │  ──▶  │ Job 4: Amazon ECS Deploy│
+│ (7 Services in  │       │ (Compile JAR & Build   │       │ (Keyless AWS OIDC Auth │       │ (Zero-Downtime Rolling  │
+│  Parallel)      │       │  Docker Containers)    │       │  -> Push ECR Images)   │       │  Fargate Deployment)    │
+└─────────────────┘       └────────────────────────┘       └────────────────────────┘       └─────────────────────────┘
 ```
 
 1. **Test Matrix**: Automatically triggers on pull requests and pushes to `main`, validating unit and integration suites in parallel.
 2. **Build Matrix**: Compiles executable Spring Boot artifacts (`bootJar`) and builds Docker images tagged with Git commit SHAs and `latest`.
 3. **AWS OIDC Deployment**: Authenticates seamlessly with AWS STS using OpenID Connect (**zero stored long-lived AWS keys**) and pushes images to Amazon ECR.
+4. **Automated ECS Fargate Deployment**: Injects new container image digests into task definitions using `aws-actions/amazon-ecs-render-task-definition` and executes zero-downtime rolling service deployments with `aws-actions/amazon-ecs-deploy-task-definition`.
 
-> For step-by-step instructions on configuring AWS IAM OIDC roles and ECR repositories, refer to the [AWS CI/CD Setup Guide](docs/AWS_CICD_SETUP.md).
+> - For initial environment and cluster provisioning (VPC, Aurora Serverless v2, MSK Serverless), see the [AWS Copilot & ECS Fargate Deployment Guide](docs/AWS_COPILOT_ECS_DEPLOYMENT.md).
+> - For step-by-step instructions on configuring AWS IAM OIDC roles and ECR repositories, see the [AWS CI/CD Setup Guide](docs/AWS_CICD_SETUP.md).
 
 ---
 
@@ -379,13 +383,18 @@ Continuous Integration and Continuous Deployment are managed via **GitHub Action
 omnichannel-order-platform/
 ├── .github/
 │   └── workflows/
-│       └── ci-cd.yml                 # GitHub Actions 3-tier pipeline
+│       └── ci-cd.yml                 # GitHub Actions CI/CD with ECR & ECS rolling deploy
+├── copilot/                          # AWS Copilot manifests (Cost-Optimized Dev)
+│   ├── .workspace                    # Application configuration
+│   ├── environments/dev/             # VPC (1 NAT GW), Aurora v2 & MSK Serverless addons
+│   └── <service>/manifest.yml        # Service manifests (Load Balanced & Backend)
 ├── docker/
-│   └── postgres/
-│       └── init/
-│           └── 01-create-databases.sql # DB initialization scripts
+│   └── postgres/init/                # PostgreSQL local initialization scripts
 ├── docs/
-│   └── AWS_CICD_SETUP.md             # Keyless AWS OIDC & ECR deployment documentation
+│   ├── AWS_CICD_SETUP.md             # Keyless AWS OIDC & ECR deployment documentation
+│   └── AWS_COPILOT_ECS_DEPLOYMENT.md # AWS Copilot & ECS Fargate deployment guide
+├── infrastructure/
+│   └── ecs/task-definitions/         # Fargate task definition JSON templates (7 services)
 ├── services/
 │   ├── api-gateway/                  # Spring Cloud Gateway edge router (Port 8080)
 │   ├── auth-service/                 # JWT Authentication & RBAC (Port 8081)
@@ -394,7 +403,7 @@ omnichannel-order-platform/
 │   ├── order-service/                # Order management & Saga orchestrator (Port 8084)
 │   ├── payment-service/              # Payment processing & Kafka producer (Port 8085)
 │   └── notification-service/         # Async notification subscriber (Port 8086)
-├── docker-compose.yml                # Unified multi-container orchestration
+├── docker-compose.yml                # Unified multi-container local orchestration
 └── README.md                         # Project documentation
 ```
 

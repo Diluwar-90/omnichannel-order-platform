@@ -1,0 +1,87 @@
+Parameters:
+  App:
+    Type: String
+    Description: Your application's name.
+  Env:
+    Type: String
+    Description: The environment name your service, job, or workflow is being deployed to.
+
+Resources:
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${App}-${Env}-postgres-credentials"
+      Description: PostgreSQL master credentials for omnichannel platform
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "app_user"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\ '
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Aurora Serverless v2 cluster
+      SubnetIds:
+        Fn::Split:
+          - ","
+          - Fn::ImportValue: !Sub "${App}-${Env}-PrivateSubnets"
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Inbound access for Aurora PostgreSQL
+      VpcId:
+        Fn::ImportValue: !Sub "${App}-${Env}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub "${App}-${Env}-EnvironmentSecurityGroup"
+
+  AuroraDBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: "16.1"
+      DatabaseName: omnichannel
+      MasterUsername:
+        !Join ['', ['{{resolve:secretsmanager:', !Ref DatabaseSecret, ':SecretString:username}}']]
+      MasterUserPassword:
+        !Join ['', ['{{resolve:secretsmanager:', !Ref DatabaseSecret, ':SecretString:password}}']]
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 1.0
+      EnableIAMDatabaseAuthentication: false
+      StorageEncrypted: true
+      DeletionProtection: false
+
+  AuroraDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+
+Outputs:
+  DBEndpoint:
+    Description: Aurora PostgreSQL Cluster Endpoint
+    Value: !GetAtt AuroraDBCluster.Endpoint.Address
+    Export:
+      Name: !Sub "${App}-${Env}-DBEndpoint"
+
+  DBPort:
+    Description: Aurora PostgreSQL Port
+    Value: !GetAtt AuroraDBCluster.Endpoint.Port
+    Export:
+      Name: !Sub "${App}-${Env}-DBPort"
+
+  DBSecretArn:
+    Description: Secrets Manager ARN for DB Credentials
+    Value: !Ref DatabaseSecret
+    Export:
+      Name: !Sub "${App}-${Env}-DBSecretArn"
