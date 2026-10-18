@@ -21,6 +21,7 @@ An enterprise-grade, distributed **Omnichannel Order Processing Platform** built
 - [System Architecture](#system-architecture)
 - [Microservice Ecosystem](#microservice-ecosystem)
 - [Event-Driven Saga Pattern (Order Lifecycle)](#event-driven-saga-pattern-order-lifecycle)
+- [Fault Tolerance & Resilience (Resilience4j & Idempotency)](#fault-tolerance--resilience-resilience4j--idempotency)
 - [API Gateway Routing & Endpoints](#api-gateway-routing--endpoints)
 - [Security & RBAC](#security--rbac)
 - [Technology Stack](#technology-stack)
@@ -196,19 +197,25 @@ flowchart TD
 ### Core Resilience Mechanisms
 
 1. **Circuit Breakers (`@CircuitBreaker`)**:
-   - Monitored services: `order-service` (calls to `payment-service` and `inventory-service`), `payment-service` (calls to external provider), and `api-gateway` (edge routing).
-   - Fails fast when downstream services become unresponsive, preventing cascading thread starvation.
-   - Self-healing via automatic transition from `OPEN` to `HALF_OPEN` state.
+   - **Order Service**: Inter-service REST clients (`PaymentClient` and `InventoryClient`) are guarded by Resilience4j circuit breakers with sliding window evaluation (10 calls), 50% failure threshold, and 50% slow-call threshold (>2s). When open, requests automatically redirect to local fallback handlers, returning descriptive service degradation responses rather than tying up container threads.
+   - **Payment Service**: Third-party payment provider integration (`PaymentProvider` / `DefaultPaymentProvider`) is protected by a dedicated circuit breaker (`paymentProvider`) to isolate external latency spikes and bank gateway outages.
+   - **API Gateway**: Edge routing utilizes `spring-cloud-starter-circuitbreaker-reactor-resilience4j` with reactive timeout filters that immediately redirect failing route traffic to edge fallback endpoints.
+   - **Self-Healing Dynamics**: Automatically transitions from `CLOSED` &rarr; `OPEN` &rarr; `HALF_OPEN` &rarr; `CLOSED` upon downstream recovery.
+
 2. **Exponential Backoff Retries (`@Retry`)**:
-   - Configured with 3 attempts, initial wait duration of 500ms, and a 2x backoff multiplier.
-   - Retries transient failures (`5xx`, `ResourceAccessException`, `IOException`) while ignoring deterministic client errors (`4xx`).
+   - Configured with 3 max attempts, 500ms initial wait duration, and a 2x backoff multiplier.
+   - Selectively retries transient network interruptions (`ResourceAccessException`, `IOException`, `5xx` server errors) while bypassing client errors (`4xx`).
+
 3. **Time Limiters & Socket Timeouts (`@TimeLimiter`)**:
-   - Explicit connect (3s) and read timeouts (5s) configured on HTTP client request factories.
+   - HTTP clients leverage `JdkClientHttpRequestFactory` with strict socket-level timeouts (3-second connection timeout, 5-second read timeout), preventing hung connections from exhausting connection pools.
+
 4. **Distributed Idempotency (`Idempotency-Key`)**:
-   - Clients send `Idempotency-Key` headers on payment mutations.
-   - `PaymentService` enforces deduplication; duplicate requests return the existing payment without double charging.
-5. **Gateway Edge Fallbacks**:
-   - `api-gateway` routes protected by Reactive CircuitBreakers with graceful `503 Service Unavailable` fallback responses.
+   - **Header Propagation**: Callers and clients provide standard `Idempotency-Key` headers on mutations.
+   - **Deduplication Logic**: `PaymentService` queries existing records by `idempotencyKey` and `orderId`. Duplicate submissions immediately return the existing processed payment entity without re-executing credit card captures or generating duplicate bank charges.
+   - **Automated Client Propagation**: `order-service` automatically injects a deterministic `Idempotency-Key: order-<id>` or UUID header when executing synchronous payment calls.
+
+5. **Edge Gateway Fallbacks**:
+   - The API Gateway routes incoming traffic through reactive circuit breakers. In the event of downstream service degradation, callers receive clean, standardized JSON errors (`/fallback/orders`, `/fallback/payments`, `/fallback/inventory`, `/fallback/products`, `/fallback/auth`, `/fallback/notifications`) rather than raw connection timeouts.
 
 ---
 
@@ -222,14 +229,14 @@ All external traffic routes through the **API Gateway** on port `8080`.
 # Register a new user
 curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username":"john_doe","email":"john@example.com","password":"SecurePassword123!","role":"USER"}'
+  -d '{"name":"John Doe","email":"john@example.com","password":"SecurePassword123!"}'
 
 # Authenticate & obtain JWT
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"john_doe","password":"SecurePassword123!"}'
+  -d '{"email":"john@example.com","password":"SecurePassword123!"}'
 
-# Verify authentication
+# Verify authentication (Protected Profile)
 curl -X GET http://localhost:8080/api/v1/auth/me \
   -H "Authorization: Bearer <TOKEN>"
 ```
@@ -237,10 +244,10 @@ curl -X GET http://localhost:8080/api/v1/auth/me \
 ### 2. Products (`/api/products/**` &rarr; `:8082`)
 
 ```bash
-# Create Product
+# Create Product (Requires stockQuantity)
 curl -X POST http://localhost:8080/api/products \
   -H "Content-Type: application/json" \
-  -d '{"name":"Wireless Noise-Canceling Headphones","description":"Premium over-ear headphones","price":199.99,"sku":"TECH-HEADPHONE-001"}'
+  -d '{"name":"Wireless Noise-Canceling Headphones","description":"Premium over-ear headphones","price":199.99,"stockQuantity":50}'
 
 # List Products
 curl -X GET http://localhost:8080/api/products
@@ -255,30 +262,58 @@ curl -X GET http://localhost:8080/api/products/1
 # Initialize inventory for product
 curl -X POST http://localhost:8080/api/v1/inventory \
   -H "Content-Type: application/json" \
-  -d '{"productId":1,"availableQuantity":100}'
+  -d '{"productId":1,"quantity":100}'
 
-# Check availability
+# Check stock availability
 curl -X GET "http://localhost:8080/api/v1/inventory/1/availability?quantity=2"
+
+# Reserve stock
+curl -X POST http://localhost:8080/api/v1/inventory/1/reserve \
+  -H "Content-Type: application/json" \
+  -d '{"quantity":2}'
+
+# Release stock
+curl -X POST http://localhost:8080/api/v1/inventory/1/release \
+  -H "Content-Type: application/json" \
+  -d '{"quantity":2}'
 ```
 
 ### 4. Orders (`/api/orders/**` &rarr; `:8084`)
 
 ```bash
-# Place new order
+# Place new order (triggers synchronous inventory reservation & Kafka Saga)
 curl -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
-  -d '{"customerId":101,"productId":1,"quantity":2,"totalAmount":399.98,"shippingAddress":"123 Main St"}'
+  -d '{
+    "customerId": 101,
+    "items": [
+      {
+        "productId": 1,
+        "quantity": 2,
+        "unitPrice": 199.99
+      }
+    ]
+  }'
 
 # Get order details
 curl -X GET http://localhost:8080/api/orders/1
 
-# Get order payment details
+# Get order payment details (via Order Service Client)
 curl -X GET http://localhost:8080/api/orders/1/payment
 ```
 
 ### 5. Payments (`/api/v1/payments/**` &rarr; `:8085`)
 
 ```bash
+# Process direct payment with Idempotency Key
+curl -X POST http://localhost:8080/api/v1/payments \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d" \
+  -d '{"orderId":1,"amount":399.98,"currency":"USD"}'
+
+# Duplicate call with same Idempotency-Key returns cached payment without double charge:
+# Status: 201 Created (Cached Entity with exact same ID and timestamp)
+
 # Query payment by order ID
 curl -X GET http://localhost:8080/api/v1/payments/order/1
 ```
@@ -288,6 +323,28 @@ curl -X GET http://localhost:8080/api/v1/payments/order/1
 ```bash
 # View dispatched notifications audit log
 curl -X GET http://localhost:8080/api/notifications
+```
+
+### 7. Edge Gateway Fallbacks & Circuit Breakers (`/fallback/**` &rarr; `:8080`)
+
+When a backend microservice becomes unavailable or latency exceeds timeout thresholds, Spring Cloud Gateway routes gracefully degrade to fallback endpoints:
+
+```bash
+# Test fallback response directly or during downstream service outage:
+curl -X GET http://localhost:8080/fallback/orders
+curl -X GET http://localhost:8080/fallback/payments
+curl -X GET http://localhost:8080/fallback/inventory
+curl -X GET http://localhost:8080/fallback/products
+curl -X GET http://localhost:8080/fallback/auth
+curl -X GET http://localhost:8080/fallback/notifications
+
+# Standardized HTTP 503 JSON Output:
+# {
+#   "error": "Service Unavailable",
+#   "message": "Order Service is currently unavailable. Circuit breaker triggered.",
+#   "status": 503,
+#   "timestamp": "2026-10-18T18:50:00Z"
+# }
 ```
 
 ---
@@ -308,6 +365,7 @@ The platform implements **Spring Security 6** with **stateless JWT tokens**:
 | :--- | :--- |
 | **Language & Runtimes** | Java 21 (OpenJDK / Eclipse Temurin Alpine JRE) |
 | **Frameworks** | Spring Boot 4.x / 3.x, Spring Cloud Gateway (WebFlux), Spring Security, Spring Data JPA |
+| **Resilience & Fault Tolerance** | Resilience4j 2.2.0 (Circuit Breakers, Retries, TimeLimiters), Spring Cloud CircuitBreaker (Reactor Resilience4j) |
 | **Messaging & Streaming** | Apache Kafka 4.1.0 (KRaft mode, zero ZooKeeper dependency) |
 | **Databases & Migrations**| PostgreSQL 17, Flyway Database Migrations |
 | **Build & Tooling** | Gradle 8.x / 9.x Wrapper, Project Lombok, Jackson |
@@ -328,14 +386,17 @@ Ensure you have installed:
 
 ### Starting Infrastructure with Docker Compose
 
-The platform provides a unified [`docker-compose.yml`](docker-compose.yml) orchestrating **PostgreSQL 17** (with pre-initialized schemas), **Apache Kafka** (KRaft mode), and core service containers.
+The platform provides a unified [`docker-compose.yml`](docker-compose.yml) orchestrating all 7 microservices, **PostgreSQL 17** (with pre-initialized schemas), and **Apache Kafka** (KRaft mode).
 
 ```bash
 # Clone the repository
 git clone https://github.com/Diluwar-90/omnichannel-order-platform.git
 cd omnichannel-order-platform
 
-# Start PostgreSQL and Apache Kafka
+# Option A: Start complete platform (All 7 microservices + PostgreSQL + Kafka)
+docker compose up -d
+
+# Option B: Start infrastructure only (PostgreSQL 17 and Apache Kafka KRaft)
 docker compose up -d postgres kafka
 
 # Verify container health
@@ -462,19 +523,63 @@ omnichannel-order-platform/
 
 ## Observability & Health Checks
 
-Each microservice exposes standard Spring Boot Actuator endpoints for container health probes and metrics collection:
+Each microservice exposes standard Spring Boot Actuator endpoints for container health probes, circuit breaker state tracking, and metrics collection:
+
+### 1. Health Checks (Liveness / Readiness)
 
 ```bash
-# Health check (Liveness / Readiness)
-curl http://localhost:8080/actuator/health
-curl http://localhost:8081/actuator/health
-curl http://localhost:8082/actuator/health
-curl http://localhost:8083/actuator/health
-curl http://localhost:8084/actuator/health
-curl http://localhost:8085/actuator/health
-curl http://localhost:8086/actuator/health
+# Verify health across all services
+curl http://localhost:8080/actuator/health  # API Gateway
+curl http://localhost:8081/actuator/health  # Auth Service
+curl http://localhost:8082/actuator/health  # Product Service
+curl http://localhost:8083/actuator/health  # Inventory Service
+curl http://localhost:8084/actuator/health  # Order Service
+curl http://localhost:8085/actuator/health  # Payment Service
+curl http://localhost:8086/actuator/health  # Notification Service
+```
 
-# Gateway Route Inspection
+### 2. Resilience4j Circuit Breakers & Retries Monitoring
+
+Actuator exposes runtime circuit breaker and retry telemetry for real-time observability:
+
+```bash
+# Inspect Order Service Circuit Breakers (PaymentClient & InventoryClient)
+curl http://localhost:8084/actuator/circuitbreakers
+
+# Sample Output:
+# {
+#   "circuitBreakers": {
+#     "inventoryService": {
+#       "bufferedCalls": 1,
+#       "failedCalls": 0,
+#       "failureRate": "-1.0%",
+#       "failureRateThreshold": "50.0%",
+#       "notPermittedCalls": 0,
+#       "state": "CLOSED"
+#     },
+#     "paymentService": {
+#       "bufferedCalls": 2,
+#       "failedCalls": 0,
+#       "failureRate": "-1.0%",
+#       "failureRateThreshold": "50.0%",
+#       "notPermittedCalls": 0,
+#       "state": "CLOSED"
+#     }
+#   }
+# }
+
+# Inspect Payment Service Circuit Breakers (PaymentProvider)
+curl http://localhost:8085/actuator/circuitbreakers
+
+# Inspect Configured Retries
+curl http://localhost:8084/actuator/retries
+# Output: {"retries":["inventoryService","paymentService"]}
+```
+
+### 3. API Gateway Route Inspection
+
+```bash
+# Query active edge routes, predicates, and filter definitions
 curl http://localhost:8080/actuator/gateway/routes
 ```
 
