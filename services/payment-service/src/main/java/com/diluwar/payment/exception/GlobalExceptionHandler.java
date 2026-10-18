@@ -47,6 +47,17 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(PaymentProcessingException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public Map<String, Object> handlePaymentProcessing(
+        PaymentProcessingException ex) {
+
+        return response(
+            HttpStatus.BAD_GATEWAY.value(),
+            ex.getMessage()
+        );
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, Object> handleValidation(

@@ -15,6 +15,7 @@ services:
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app_user -d omnichannel"]
@@ -48,6 +49,7 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
   inventory-service:
+    build: services/inventory-service
     image: inventory-service:test
     container_name: inventory-service
     restart: unless-stopped
@@ -66,6 +68,7 @@ services:
         condition: service_healthy
 
   payment-service:
+    build: services/payment-service
     image: payment-service:test
     container_name: payment-service
     restart: unless-stopped
@@ -83,8 +86,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_started
 
   order-service:
+    build: services/order-service
     image: order-service:test
     container_name: order-service
     restart: unless-stopped
@@ -106,12 +112,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_started
       inventory-service:
         condition: service_started
       payment-service:
         condition: service_started
 
   notification-service:
+    build: services/notification-service
     image: notification-service:test
     container_name: notification-service
     restart: unless-stopped
@@ -131,6 +140,70 @@ services:
         condition: service_healthy
       kafka:
         condition: service_started
+
+  auth-service:
+    build: services/auth-service
+    image: auth-service:test
+    container_name: auth-service
+    restart: unless-stopped
+
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/auth_db
+      DB_USERNAME: app_user
+      DB_PASSWORD: app_password
+      SERVER_PORT: 8081
+
+    ports:
+      - "8081:8081"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  product-service:
+    build: services/product-service
+    image: product-service:test
+    container_name: product-service
+    restart: unless-stopped
+
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/product_db
+      DB_USERNAME: app_user
+      DB_PASSWORD: app_password
+      SERVER_PORT: 8082
+
+    ports:
+      - "8082:8082"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-gateway:
+    build: services/api-gateway
+    image: api-gateway:test
+    container_name: api-gateway
+    restart: unless-stopped
+
+    environment:
+      ORDER_SERVICE_URL: http://order-service:8084
+      PRODUCT_SERVICE_URL: http://product-service:8082
+      INVENTORY_SERVICE_URL: http://inventory-service:8083
+      PAYMENT_SERVICE_URL: http://payment-service:8085
+      NOTIFICATION_SERVICE_URL: http://notification-service:8086
+      AUTH_SERVICE_URL: http://auth-service:8081
+      SERVER_PORT: 8080
+
+    ports:
+      - "8080:8080"
+
+    depends_on:
+      - order-service
+      - payment-service
+      - inventory-service
+      - product-service
+      - auth-service
+      - notification-service
 
 volumes:
   postgres_data:

@@ -166,6 +166,52 @@ sequenceDiagram
 
 ---
 
+## Fault Tolerance & Resilience (Resilience4j & Idempotency)
+
+The platform implements industry-standard fault tolerance patterns powered by **Resilience4j**, client-side timeouts, and distributed idempotency guarantees:
+
+```mermaid
+flowchart TD
+    OS[Order Service] -->|Idempotency-Key Header| R4J[Resilience4j Interceptor]
+    
+    subgraph R4J_Stack [Resilience4j Protection Stack]
+        TL[TimeLimiter: 3s Timeout]
+        RE[Retry: 3 Attempts with Exponential Backoff]
+        CB[Circuit Breaker: Sliding Window & 50% Threshold]
+    end
+    
+    R4J --> TL --> RE --> CB --> PS[Payment Service]
+    
+    subgraph Payment_Flow [Payment Service Idempotent Processing]
+        PS --> ID_CHK{Check Idempotency}
+        ID_CHK -->|Existing Payment| RET_EXIST[Return Cached Response]
+        ID_CHK -->|New Payment| EXT_PROV[External Payment Provider]
+        EXT_PROV -->|Success| SAVE_PAY[Save Payment: CAPTURED]
+        EXT_PROV -->|Failure| FAIL_PAY[Save Payment: FAILED]
+        SAVE_PAY --> RET_RES[Publish Event & Return Result]
+        FAIL_PAY --> RET_RES
+    end
+```
+
+### Core Resilience Mechanisms
+
+1. **Circuit Breakers (`@CircuitBreaker`)**:
+   - Monitored services: `order-service` (calls to `payment-service` and `inventory-service`), `payment-service` (calls to external provider), and `api-gateway` (edge routing).
+   - Fails fast when downstream services become unresponsive, preventing cascading thread starvation.
+   - Self-healing via automatic transition from `OPEN` to `HALF_OPEN` state.
+2. **Exponential Backoff Retries (`@Retry`)**:
+   - Configured with 3 attempts, initial wait duration of 500ms, and a 2x backoff multiplier.
+   - Retries transient failures (`5xx`, `ResourceAccessException`, `IOException`) while ignoring deterministic client errors (`4xx`).
+3. **Time Limiters & Socket Timeouts (`@TimeLimiter`)**:
+   - Explicit connect (3s) and read timeouts (5s) configured on HTTP client request factories.
+4. **Distributed Idempotency (`Idempotency-Key`)**:
+   - Clients send `Idempotency-Key` headers on payment mutations.
+   - `PaymentService` enforces deduplication; duplicate requests return the existing payment without double charging.
+5. **Gateway Edge Fallbacks**:
+   - `api-gateway` routes protected by Reactive CircuitBreakers with graceful `503 Service Unavailable` fallback responses.
+
+---
+
 ## API Gateway Routing & Endpoints
 
 All external traffic routes through the **API Gateway** on port `8080`.

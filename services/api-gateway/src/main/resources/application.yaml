@@ -11,32 +11,109 @@ spring:
             uri: ${ORDER_SERVICE_URL:http://localhost:8084}
             predicates:
               - Path=/api/orders/**
+            filters:
+              - name: CircuitBreaker
+                args:
+                  name: orderServiceCircuitBreaker
+                  fallbackUri: forward:/fallback/orders
 
           - id: product-service
             uri: ${PRODUCT_SERVICE_URL:http://localhost:8082}
             predicates:
               - Path=/api/products/**
+            filters:
+              - name: CircuitBreaker
+                args:
+                  name: productServiceCircuitBreaker
+                  fallbackUri: forward:/fallback/products
 
           - id: inventory-service
             uri: ${INVENTORY_SERVICE_URL:http://localhost:8083}
             predicates:
               - Path=/api/v1/inventory/**
+            filters:
+              - name: CircuitBreaker
+                args:
+                  name: inventoryServiceCircuitBreaker
+                  fallbackUri: forward:/fallback/inventory
 
           - id: payment-service
             uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
             predicates:
               - Path=/api/v1/payments/**
+            filters:
+              - name: CircuitBreaker
+                args:
+                  name: paymentServiceCircuitBreaker
+                  fallbackUri: forward:/fallback/payments
 
           - id: notification-service
             uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
             predicates:
               - Path=/api/notifications/**
+            filters:
+              - name: CircuitBreaker
+                args:
+                  name: notificationServiceCircuitBreaker
+                  fallbackUri: forward:/fallback/notifications
 
           - id: auth-service
             uri: ${AUTH_SERVICE_URL:http://localhost:8081}
             predicates:
               - Path=/api/v1/auth/**
+            filters:
+              - name: CircuitBreaker
+                args:
+                  name: authServiceCircuitBreaker
+                  fallbackUri: forward:/fallback/auth
 
+resilience4j:
+  circuitbreaker:
+    instances:
+      orderServiceCircuitBreaker:
+        slidingWindowSize: 10
+        failureRateThreshold: 50.0
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+      paymentServiceCircuitBreaker:
+        slidingWindowSize: 10
+        failureRateThreshold: 50.0
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+      inventoryServiceCircuitBreaker:
+        slidingWindowSize: 10
+        failureRateThreshold: 50.0
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+      productServiceCircuitBreaker:
+        slidingWindowSize: 10
+        failureRateThreshold: 50.0
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+      authServiceCircuitBreaker:
+        slidingWindowSize: 10
+        failureRateThreshold: 50.0
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+      notificationServiceCircuitBreaker:
+        slidingWindowSize: 10
+        failureRateThreshold: 50.0
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+  timelimiter:
+    instances:
+      orderServiceCircuitBreaker:
+        timeoutDuration: 5s
+      paymentServiceCircuitBreaker:
+        timeoutDuration: 5s
+      inventoryServiceCircuitBreaker:
+        timeoutDuration: 5s
+      productServiceCircuitBreaker:
+        timeoutDuration: 5s
+      authServiceCircuitBreaker:
+        timeoutDuration: 5s
+      notificationServiceCircuitBreaker:
+        timeoutDuration: 5s
 
 server:
   port: 8080
@@ -45,9 +122,14 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,gateway
+        include: health,info,gateway,circuitbreakers,metrics
   endpoint:
     gateway:
+      enabled: true
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
       enabled: true
 
 logging:

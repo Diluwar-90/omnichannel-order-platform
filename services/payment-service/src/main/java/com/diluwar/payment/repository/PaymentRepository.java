@@ -1,11 +1,14 @@
 package com.diluwar.payment.repository;
 
-import com.diluwar.payment.entity.Payment;
+import java.util.Optional;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.Optional;
+import com.diluwar.payment.entity.Payment;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     Optional<Payment> findByOrderId(Long orderId);
+
+    Optional<Payment> findByIdempotencyKey(String idempotencyKey);
 }
