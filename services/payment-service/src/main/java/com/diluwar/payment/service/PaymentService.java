@@ -81,61 +81,73 @@ public class PaymentService {
             return paymentMapper.toResponse(existingPayment);
         }
 
-        // Branch 2: New payment -> Call Payment Provider
-        String effectiveKey = (idempotencyKey != null && !idempotencyKey.isBlank())
-                ? idempotencyKey
-                : "order-" + request.getOrderId() + "-" + UUID.randomUUID();
+        // Branch 2: New payment
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            PaymentProviderResult providerResult = paymentProvider.processPayment(
+                    request.getOrderId(),
+                    request.getAmount(),
+                    request.getCurrency(),
+                    idempotencyKey
+            );
 
-        PaymentProviderResult providerResult = paymentProvider.processPayment(
-                request.getOrderId(),
-                request.getAmount(),
-                request.getCurrency(),
-                effectiveKey
-        );
+            Payment payment = new Payment();
+            payment.setOrderId(request.getOrderId());
+            payment.setIdempotencyKey(idempotencyKey);
+            payment.setAmount(request.getAmount());
+            payment.setCurrency(request.getCurrency());
 
+            Instant now = Instant.now();
+            payment.setCreatedAt(now);
+            payment.setUpdatedAt(now);
+
+            if (providerResult.success()) {
+                payment.setStatus(PaymentStatus.CAPTURED);
+                payment.setTransactionId(providerResult.transactionId());
+                Payment savedPayment = paymentRepository.save(payment);
+
+                paymentEventProducer.publishPaymentCaptured(
+                        new PaymentCapturedEvent(
+                                savedPayment.getId(),
+                                savedPayment.getOrderId(),
+                                savedPayment.getAmount(),
+                                savedPayment.getCurrency(),
+                                savedPayment.getTransactionId(),
+                                savedPayment.getUpdatedAt()
+                        )
+                );
+
+                return paymentMapper.toResponse(savedPayment);
+            } else {
+                payment.setStatus(PaymentStatus.FAILED);
+                Payment savedPayment = paymentRepository.save(payment);
+
+                paymentEventProducer.publishPaymentFailed(
+                        new PaymentFailedEvent(
+                                savedPayment.getId(),
+                                savedPayment.getOrderId(),
+                                savedPayment.getAmount(),
+                                savedPayment.getCurrency(),
+                                savedPayment.getUpdatedAt()
+                        )
+                );
+
+                throw new PaymentProcessingException(providerResult.message());
+            }
+        }
+
+        // Initial payment record creation (e.g. OrderCreatedEvent saga or standard payment initialization)
         Payment payment = new Payment();
         payment.setOrderId(request.getOrderId());
-        payment.setIdempotencyKey(effectiveKey);
         payment.setAmount(request.getAmount());
         payment.setCurrency(request.getCurrency());
+        payment.setStatus(PaymentStatus.PENDING);
 
         Instant now = Instant.now();
         payment.setCreatedAt(now);
         payment.setUpdatedAt(now);
 
-        if (providerResult.success()) {
-            payment.setStatus(PaymentStatus.CAPTURED);
-            payment.setTransactionId(providerResult.transactionId());
-            Payment savedPayment = paymentRepository.save(payment);
-
-            paymentEventProducer.publishPaymentCaptured(
-                    new PaymentCapturedEvent(
-                            savedPayment.getId(),
-                            savedPayment.getOrderId(),
-                            savedPayment.getAmount(),
-                            savedPayment.getCurrency(),
-                            savedPayment.getTransactionId(),
-                            savedPayment.getUpdatedAt()
-                    )
-            );
-
-            return paymentMapper.toResponse(savedPayment);
-        } else {
-            payment.setStatus(PaymentStatus.FAILED);
-            Payment savedPayment = paymentRepository.save(payment);
-
-            paymentEventProducer.publishPaymentFailed(
-                    new PaymentFailedEvent(
-                            savedPayment.getId(),
-                            savedPayment.getOrderId(),
-                            savedPayment.getAmount(),
-                            savedPayment.getCurrency(),
-                            savedPayment.getUpdatedAt()
-                    )
-            );
-
-            throw new PaymentProcessingException(providerResult.message());
-        }
+        Payment savedPayment = paymentRepository.save(payment);
+        return paymentMapper.toResponse(savedPayment);
     }
 
     @Transactional(readOnly = true)
@@ -231,10 +243,15 @@ public class PaymentService {
             PaymentStatus current,
             PaymentStatus requested) {
 
+        if (current == requested) {
+            return true;
+        }
+
         return switch (current) {
 
             case PENDING ->
                     requested == PaymentStatus.AUTHORIZED
+                            || requested == PaymentStatus.CAPTURED
                             || requested == PaymentStatus.FAILED;
 
             case AUTHORIZED ->
@@ -242,7 +259,8 @@ public class PaymentService {
                             || requested == PaymentStatus.FAILED;
 
             case CAPTURED ->
-                    requested == PaymentStatus.REFUNDED;
+                    requested == PaymentStatus.REFUNDED
+                            || requested == PaymentStatus.AUTHORIZED;
 
             case FAILED, REFUNDED ->
                     false;

@@ -72,6 +72,7 @@ class OrderIntegrationTest {
             new GenericContainer<>("inventory-service:test")
                     .withNetwork(NETWORK)
                     .withExposedPorts(8083)
+                    .withEnv("JAVA_TOOL_OPTIONS", "-Xms128m -Xmx256m")
                     .withEnv(
                             "DB_URL",
                             "jdbc:postgresql://postgres:5432/inventory_db"
@@ -80,14 +81,18 @@ class OrderIntegrationTest {
                     .withEnv("DB_PASSWORD", "app_password")
                     .withEnv("SERVER_PORT", "8083")
                     .withEnv("EUREKA_CLIENT_ENABLED", "false")
+                    .withEnv("EUREKA_CLIENT_REGISTER_WITH_EUREKA", "false")
+                    .withEnv("EUREKA_CLIENT_FETCH_REGISTRY", "false")
                     .waitingFor(Wait.forHttp("/actuator/health")
-                            .forStatusCode(200))
+                            .forStatusCode(200)
+                            .withStartupTimeout(java.time.Duration.ofMinutes(3)))
                     .dependsOn(postgres);
 
     static GenericContainer<?> paymentContainer =
             new GenericContainer<>("payment-service:test")
                     .withNetwork(NETWORK)
                     .withExposedPorts(8085)
+                    .withEnv("JAVA_TOOL_OPTIONS", "-Xms128m -Xmx256m")
                     .withEnv(
                             "DB_URL",
                             "jdbc:postgresql://postgres:5432/payment_db"
@@ -97,8 +102,11 @@ class OrderIntegrationTest {
                     .withEnv("SERVER_PORT", "8085")
                     .withEnv("KAFKA_BOOTSTRAP_SERVERS", "kafka:19092")
                     .withEnv("EUREKA_CLIENT_ENABLED", "false")
+                    .withEnv("EUREKA_CLIENT_REGISTER_WITH_EUREKA", "false")
+                    .withEnv("EUREKA_CLIENT_FETCH_REGISTRY", "false")
                     .waitingFor(Wait.forHttp("/actuator/health")
-                            .forStatusCode(200))
+                            .forStatusCode(200)
+                            .withStartupTimeout(java.time.Duration.ofMinutes(3)))
                     .dependsOn(postgres);
 
     static {
@@ -154,9 +162,19 @@ class OrderIntegrationTest {
                 () -> "http://localhost:" +
                         inventoryService.getMappedPort(8083)
         );
+        registry.add(
+                "inventory.service.url",
+                () -> "http://localhost:" +
+                        inventoryService.getMappedPort(8083)
+        );
 
         registry.add(
                 "PAYMENT_SERVICE_URL",
+                () -> "http://localhost:" +
+                        paymentContainer.getMappedPort(8085)
+        );
+        registry.add(
+                "payment.service.url",
                 () -> "http://localhost:" +
                         paymentContainer.getMappedPort(8085)
         );

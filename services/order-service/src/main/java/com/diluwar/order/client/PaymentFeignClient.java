@@ -21,7 +21,7 @@ import com.diluwar.order.dto.PaymentResponse;
  *   eliminating hardcoded endpoint URIs and supporting dynamic autoscaling.
  * - Idempotency Preservation: Seamlessly transmits the 'Idempotency-Key' HTTP header across balanced instances.
  */
-@FeignClient(name = "payment-service", path = "/api/v1/payments")
+@FeignClient(name = "payment-service", path = "/api/v1/payments", url = "${payment.service.url:}")
 public interface PaymentFeignClient {
 
     @PostMapping

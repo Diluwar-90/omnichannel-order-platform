@@ -77,7 +77,7 @@ class PaymentIntegrationTest {
         );
 
         assertEquals(
-                PaymentStatus.CAPTURED,
+                PaymentStatus.PENDING,
                 response.getStatus()
         );
     }
@@ -121,9 +121,36 @@ class PaymentIntegrationTest {
         );
 
         assertEquals(
-                PaymentStatus.CAPTURED,
+                PaymentStatus.PENDING,
                 response.getStatus()
         );
+    }
+
+    @Test
+    void shouldProcessDirectPaymentWithIdempotencyKeyThroughFullStack() {
+
+        String request = """
+                {
+                    "orderId": 9005,
+                    "amount": 3500.00,
+                    "currency": "INR"
+                }
+                """;
+
+        PaymentResponse response =
+                restClient()
+                        .post()
+                        .uri("/api/v1/payments")
+                        .header("Idempotency-Key", "idemp-test-9005")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(request)
+                        .retrieve()
+                        .body(PaymentResponse.class);
+
+        assertNotNull(response);
+        assertEquals(9005L, response.getOrderId());
+        assertEquals(PaymentStatus.CAPTURED, response.getStatus());
+        assertNotNull(response.getTransactionId());
     }
 
     @Test

@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
  *   'inventory-service' instances supplied by Netflix Eureka.
  * - Non-blocking Round-Robin: Spring Cloud LoadBalancer guarantees uniform distribution across inventory nodes.
  */
-@FeignClient(name = "inventory-service", path = "/api/v1/inventory")
+@FeignClient(name = "inventory-service", path = "/api/v1/inventory", url = "${inventory.service.url:}")
 public interface InventoryFeignClient {
 
     @PostMapping("/{productId}/reserve")
