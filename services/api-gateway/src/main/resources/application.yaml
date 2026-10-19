@@ -8,7 +8,7 @@ spring:
         webflux:
           routes:
           - id: order-service
-            uri: ${ORDER_SERVICE_URL:http://localhost:8084}
+            uri: ${ORDER_SERVICE_URL:lb://order-service}
             predicates:
               - Path=/api/orders/**
             filters:
@@ -18,7 +18,7 @@ spring:
                   fallbackUri: forward:/fallback/orders
 
           - id: product-service
-            uri: ${PRODUCT_SERVICE_URL:http://localhost:8082}
+            uri: ${PRODUCT_SERVICE_URL:lb://product-service}
             predicates:
               - Path=/api/products/**
             filters:
@@ -28,7 +28,7 @@ spring:
                   fallbackUri: forward:/fallback/products
 
           - id: inventory-service
-            uri: ${INVENTORY_SERVICE_URL:http://localhost:8083}
+            uri: ${INVENTORY_SERVICE_URL:lb://inventory-service}
             predicates:
               - Path=/api/v1/inventory/**
             filters:
@@ -38,7 +38,7 @@ spring:
                   fallbackUri: forward:/fallback/inventory
 
           - id: payment-service
-            uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+            uri: ${PAYMENT_SERVICE_URL:lb://payment-service}
             predicates:
               - Path=/api/v1/payments/**
             filters:
@@ -48,7 +48,7 @@ spring:
                   fallbackUri: forward:/fallback/payments
 
           - id: notification-service
-            uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+            uri: ${NOTIFICATION_SERVICE_URL:lb://notification-service}
             predicates:
               - Path=/api/notifications/**
             filters:
@@ -58,7 +58,7 @@ spring:
                   fallbackUri: forward:/fallback/notifications
 
           - id: auth-service
-            uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+            uri: ${AUTH_SERVICE_URL:lb://auth-service}
             predicates:
               - Path=/api/v1/auth/**
             filters:
@@ -66,6 +66,15 @@ spring:
                 args:
                   name: authServiceCircuitBreaker
                   fallbackUri: forward:/fallback/auth
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+    register-with-eureka: ${EUREKA_CLIENT_REGISTER_WITH_EUREKA:true}
+    fetch-registry: ${EUREKA_CLIENT_FETCH_REGISTRY:true}
+  instance:
+    prefer-ip-address: true
 
 resilience4j:
   circuitbreaker:

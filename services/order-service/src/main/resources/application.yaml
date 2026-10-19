@@ -39,6 +39,15 @@ spring:
         spring.json.trusted.packages: "*"
         spring.json.value.default.type: com.diluwar.order.event.PaymentCapturedEvent
 
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+    register-with-eureka: ${EUREKA_CLIENT_REGISTER_WITH_EUREKA:true}
+    fetch-registry: ${EUREKA_CLIENT_FETCH_REGISTRY:true}
+  instance:
+    prefer-ip-address: true
+
 server:
   port: 8084
 
@@ -56,10 +65,13 @@ resilience4j:
         permittedNumberOfCallsInHalfOpenState: 3
         automaticTransitionFromOpenToHalfOpenEnabled: true
         recordExceptions:
+          - feign.FeignException.FeignServerException
+          - feign.RetryableException
           - org.springframework.web.client.HttpServerErrorException
           - org.springframework.web.client.ResourceAccessException
           - java.io.IOException
         ignoreExceptions:
+          - feign.FeignException.FeignClientException
           - org.springframework.web.client.HttpClientErrorException
       inventoryService:
         slidingWindowType: COUNT_BASED
@@ -72,10 +84,13 @@ resilience4j:
         permittedNumberOfCallsInHalfOpenState: 3
         automaticTransitionFromOpenToHalfOpenEnabled: true
         recordExceptions:
+          - feign.FeignException.FeignServerException
+          - feign.RetryableException
           - org.springframework.web.client.HttpServerErrorException
           - org.springframework.web.client.ResourceAccessException
           - java.io.IOException
         ignoreExceptions:
+          - feign.FeignException.FeignClientException
           - org.springframework.web.client.HttpClientErrorException
   retry:
     instances:
@@ -85,10 +100,13 @@ resilience4j:
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
         retryExceptions:
+          - feign.FeignException.FeignServerException
+          - feign.RetryableException
           - org.springframework.web.client.HttpServerErrorException
           - org.springframework.web.client.ResourceAccessException
           - java.io.IOException
         ignoreExceptions:
+          - feign.FeignException.FeignClientException
           - org.springframework.web.client.HttpClientErrorException
       inventoryService:
         maxAttempts: 3
@@ -96,10 +114,13 @@ resilience4j:
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
         retryExceptions:
+          - feign.FeignException.FeignServerException
+          - feign.RetryableException
           - org.springframework.web.client.HttpServerErrorException
           - org.springframework.web.client.ResourceAccessException
           - java.io.IOException
         ignoreExceptions:
+          - feign.FeignException.FeignClientException
           - org.springframework.web.client.HttpClientErrorException
   timelimiter:
     instances:

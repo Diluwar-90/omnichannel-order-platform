@@ -12,20 +12,19 @@ import java.math.BigDecimal;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.client.RestClient;
 
 import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.exception.PaymentServiceUnavailableException;
 
 class PaymentClientTest {
 
-    private RestClient restClient;
+    private PaymentFeignClient paymentFeignClient;
     private PaymentClient paymentClient;
 
     @BeforeEach
     void setUp() {
-        restClient = mock(RestClient.class);
-        paymentClient = new PaymentClient(restClient);
+        paymentFeignClient = mock(PaymentFeignClient.class);
+        paymentClient = new PaymentClient(paymentFeignClient);
     }
 
     @Test

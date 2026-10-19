@@ -17,6 +17,12 @@ repositories {
     mavenCentral()
 }
 
+dependencyManagement {
+    imports {
+        mavenBom 'org.springframework.cloud:spring-cloud-dependencies:2025.1.2'
+    }
+}
+
 dependencies {
 
     // Spring Boot
@@ -25,6 +31,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+
+    // Spring Cloud Eureka, OpenFeign, and LoadBalancer
+    implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
+    implementation 'org.springframework.cloud:spring-cloud-starter-loadbalancer'
 
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.13'
 

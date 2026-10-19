@@ -7,3 +7,9 @@ spring:
     baseline-on-migrate: true
     schemas: payment_schema
     default-schema: payment_schema
+
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false

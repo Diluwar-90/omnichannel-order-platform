@@ -5,9 +5,7 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import com.diluwar.order.dto.PaymentResponse;
 import com.diluwar.order.exception.PaymentServiceUnavailableException;
@@ -31,11 +29,10 @@ import io.github.resilience4j.retry.annotation.Retry;
 public class PaymentClient {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentClient.class);
-    private final RestClient restClient;
+    private final PaymentFeignClient paymentFeignClient;
 
-    public PaymentClient(
-            @Qualifier("paymentRestClient") RestClient restClient) {
-        this.restClient = restClient;
+    public PaymentClient(PaymentFeignClient paymentFeignClient) {
+        this.paymentFeignClient = paymentFeignClient;
     }
 
     /**
@@ -64,17 +61,10 @@ public class PaymentClient {
                 ? idempotencyKey
                 : "order-" + orderId + "-" + UUID.randomUUID();
 
-        return restClient
-                .post()
-                .uri("/api/v1/payments")
-                .header("Idempotency-Key", key)
-                .body(new CreatePaymentRequest(
-                        orderId,
-                        amount,
-                        currency
-                ))
-                .retrieve()
-                .body(PaymentResponse.class);
+        return paymentFeignClient.createPayment(
+                key,
+                new PaymentFeignClient.CreatePaymentRequest(orderId, amount, currency)
+        );
     }
 
     /**
@@ -83,12 +73,7 @@ public class PaymentClient {
     @CircuitBreaker(name = "paymentService", fallbackMethod = "getPaymentFallback")
     @Retry(name = "paymentService")
     public PaymentResponse getPaymentByOrderId(Long orderId) {
-
-        return restClient
-                .get()
-                .uri("/api/v1/payments/order/" + orderId)
-                .retrieve()
-                .body(PaymentResponse.class);
+        return paymentFeignClient.getPaymentByOrderId(orderId);
     }
 
     /**
@@ -129,12 +114,5 @@ public class PaymentClient {
                 "Payment service is temporarily unavailable for order: " + orderId + " - " + throwable.getMessage(),
                 throwable
         );
-    }
-
-    private record CreatePaymentRequest(
-            Long orderId,
-            BigDecimal amount,
-            String currency
-    ) {
     }
 }

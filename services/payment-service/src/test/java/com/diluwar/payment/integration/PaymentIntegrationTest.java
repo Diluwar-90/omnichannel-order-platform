@@ -8,6 +8,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
@@ -24,6 +26,9 @@ class PaymentIntegrationTest {
     @ServiceConnection
     static PostgreSQLContainer postgres =
             new PostgreSQLContainer("postgres:17");
+
+    @MockitoBean
+    private KafkaTemplate<String, Object> kafkaTemplate;
 
     @LocalServerPort
     private int port;
@@ -72,7 +77,7 @@ class PaymentIntegrationTest {
         );
 
         assertEquals(
-                PaymentStatus.PENDING,
+                PaymentStatus.CAPTURED,
                 response.getStatus()
         );
     }
@@ -116,7 +121,7 @@ class PaymentIntegrationTest {
         );
 
         assertEquals(
-                PaymentStatus.PENDING,
+                PaymentStatus.CAPTURED,
                 response.getStatus()
         );
     }

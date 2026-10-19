@@ -43,7 +43,10 @@ class OrderIntegrationTest {
             )
                     .withNetwork(NETWORK)
                     .withNetworkAliases("kafka")
-                    .withListener("kafka:19092");    @Autowired
+                    .withListener("kafka:19092")
+                    .withStartupTimeout(java.time.Duration.ofMinutes(3));
+
+    @Autowired
     private org.springframework.core.env.Environment environment;
 
     @BeforeEach
@@ -76,8 +79,10 @@ class OrderIntegrationTest {
                     .withEnv("DB_USERNAME", "app_user")
                     .withEnv("DB_PASSWORD", "app_password")
                     .withEnv("SERVER_PORT", "8083")
+                    .withEnv("EUREKA_CLIENT_ENABLED", "false")
                     .waitingFor(Wait.forHttp("/actuator/health")
-                            .forStatusCode(200))                    .dependsOn(postgres);
+                            .forStatusCode(200))
+                    .dependsOn(postgres);
 
     static GenericContainer<?> paymentContainer =
             new GenericContainer<>("payment-service:test")
@@ -91,8 +96,10 @@ class OrderIntegrationTest {
                     .withEnv("DB_PASSWORD", "app_password")
                     .withEnv("SERVER_PORT", "8085")
                     .withEnv("KAFKA_BOOTSTRAP_SERVERS", "kafka:19092")
+                    .withEnv("EUREKA_CLIENT_ENABLED", "false")
                     .waitingFor(Wait.forHttp("/actuator/health")
-                            .forStatusCode(200))                    .dependsOn(postgres);
+                            .forStatusCode(200))
+                    .dependsOn(postgres);
 
     static {
         kafka.start();
@@ -153,6 +160,8 @@ class OrderIntegrationTest {
                 () -> "http://localhost:" +
                         paymentContainer.getMappedPort(8085)
         );
+
+        registry.add("eureka.client.enabled", () -> "false");
     }
 
     @LocalServerPort

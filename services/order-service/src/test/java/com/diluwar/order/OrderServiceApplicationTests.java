@@ -23,7 +23,8 @@ class OrderServiceApplicationTests {
 
     @Container
     static KafkaContainer kafka =
-            new KafkaContainer(DockerImageName.parse("apache/kafka-native:3.8.0"));
+            new KafkaContainer(DockerImageName.parse("apache/kafka-native:3.8.0"))
+                    .withStartupTimeout(java.time.Duration.ofMinutes(3));
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
@@ -33,6 +34,7 @@ class OrderServiceApplicationTests {
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
         registry.add("INVENTORY_SERVICE_URL", () -> "http://localhost:8083");
         registry.add("PAYMENT_SERVICE_URL", () -> "http://localhost:8085");
+        registry.add("eureka.client.enabled", () -> "false");
     }
 
     @Test

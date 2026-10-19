@@ -2,9 +2,7 @@ package com.diluwar.order.client;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import com.diluwar.order.exception.InventoryReservationException;
 
@@ -14,7 +12,8 @@ import io.github.resilience4j.retry.annotation.Retry;
 /**
  * Mission-critical synchronous inventory reservation client.
  * <p>
- * Fault-Tolerance Architecture:
+ * Load Balancing & Fault-Tolerance Architecture:
+ * - Spring Cloud OpenFeign & LoadBalancer: Client-side load-balancing across Eureka-registered inventory nodes.
  * - Resilience4j Circuit Breaker: Prevents order service thread saturation during flash sales
  *   or warehouse service maintenance by failing fast when inventory response latencies spike.
  * - Exponential Backoff Retries: Recovers smoothly from temporary concurrency lock contentions.
@@ -25,11 +24,10 @@ import io.github.resilience4j.retry.annotation.Retry;
 public class InventoryClient {
 
     private static final Logger log = LoggerFactory.getLogger(InventoryClient.class);
-    private final RestClient restClient;
+    private final InventoryFeignClient inventoryFeignClient;
 
-    public InventoryClient(
-            @Qualifier("inventoryRestClient") RestClient restClient) {
-        this.restClient = restClient;
+    public InventoryClient(InventoryFeignClient inventoryFeignClient) {
+        this.inventoryFeignClient = inventoryFeignClient;
     }
 
     /**
@@ -39,14 +37,10 @@ public class InventoryClient {
     @Retry(name = "inventoryService")
     public void reserve(Long productId, Integer quantity) {
         try {
-            restClient.post()
-                    .uri(
-                            "/api/v1/inventory/{productId}/reserve",
-                            productId
-                    )
-                    .body(new QuantityRequest(quantity))
-                    .retrieve()
-                    .toBodilessEntity();
+            inventoryFeignClient.reserveStock(
+                    productId,
+                    new InventoryFeignClient.QuantityRequest(quantity)
+            );
         } catch (Exception ex) {
             throw new InventoryReservationException(
                     "Unable to reserve inventory for product: "
@@ -64,14 +58,10 @@ public class InventoryClient {
     @Retry(name = "inventoryService")
     public void release(Long productId, Integer quantity) {
         try {
-            restClient.post()
-                    .uri(
-                            "/api/v1/inventory/{productId}/release",
-                            productId
-                    )
-                    .body(new QuantityRequest(quantity))
-                    .retrieve()
-                    .toBodilessEntity();
+            inventoryFeignClient.releaseStock(
+                    productId,
+                    new InventoryFeignClient.QuantityRequest(quantity)
+            );
         } catch (Exception ex) {
             throw new InventoryReservationException(
                     "Unable to release inventory for product: "
@@ -102,8 +92,5 @@ public class InventoryClient {
         throw new InventoryReservationException(
                 "Inventory service is temporarily unavailable for product: " + productId + " - " + throwable.getMessage()
         );
-    }
-
-    private record QuantityRequest(Integer quantity) {
     }
 }

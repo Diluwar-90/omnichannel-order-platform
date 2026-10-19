@@ -20,6 +20,7 @@ An enterprise-grade, distributed **Omnichannel Order Processing Platform** built
 - [Architectural Highlights](#architectural-highlights)
 - [System Architecture](#system-architecture)
 - [Microservice Ecosystem](#microservice-ecosystem)
+- [Service Discovery & Load Balancing (Eureka & OpenFeign)](#service-discovery--load-balancing-eureka--openfeign)
 - [Event-Driven Saga Pattern (Order Lifecycle)](#event-driven-saga-pattern-order-lifecycle)
 - [Fault Tolerance & Resilience (Resilience4j & Idempotency)](#fault-tolerance--resilience-resilience4j--idempotency)
 - [API Gateway Routing & Endpoints](#api-gateway-routing--endpoints)
@@ -40,8 +41,10 @@ An enterprise-grade, distributed **Omnichannel Order Processing Platform** built
 ## Architectural Highlights
 
 - **Microservices Architecture**: Decoupled domain boundaries with independent build lifecycles and dedicated persistence layers (Database-per-Service pattern).
+- **Service Discovery & Client-Side Load Balancing**: **Netflix Eureka Server** (`service-registry`) paired with **Spring Cloud LoadBalancer** and **OpenFeign** for declarative, dynamically discovered, client-side load-balanced inter-service communication without hardcoded IP dependencies.
+- **Dynamic Edge Routing**: **Spring Cloud Gateway (WebFlux)** leveraging Eureka registry lookup and Spring Cloud LoadBalancer (`lb://...`) for server-side discovery and intelligent traffic distribution.
 - **Choreographed Event-Driven Saga**: Asynchronous distributed transaction management using **Apache Kafka** to maintain eventual consistency without distributed locking bottlenecks.
-- **Unified Edge Routing**: **Spring Cloud Gateway (WebFlux)** serving as the non-blocking API Gateway reverse proxy for unified traffic routing, CORS policies, and rate-limiting readiness.
+- **Resilience & Fault Tolerance**: **Resilience4j** Circuit Breakers, Exponential Backoff Retries, Socket Timeouts (`JdkClientHttpRequestFactory`), and distributed idempotency (`Idempotency-Key`) preventing cascade failures.
 - **Enterprise Security**: Zero-trust authentication via stateless **JWT tokens**, BCrypt password hashing, and granular **Role-Based Access Control (RBAC)**.
 - **Lean, Hardened Production Containers**: Built on `eclipse-temurin:21-jre-alpine` (~95MB image footprint), running with least-privilege `appuser` non-root security and JVM container ergonomics (`-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0`) to eliminate container OOM kills.
 - **Reliable Data Migrations**: Automated, version-controlled relational schema migrations using **Flyway**.
@@ -56,31 +59,43 @@ An enterprise-grade, distributed **Omnichannel Order Processing Platform** built
 flowchart TB
     Client[Web / Mobile / POS Clients] -->|HTTP / REST| Gateway[API Gateway :8080]
 
+    subgraph Service Discovery Registry
+        Registry[Netflix Eureka Server :8761]
+    end
+
     subgraph Edge Layer
-        Gateway
+        Gateway -->|Registers & Discovers via lb://| Registry
     end
 
     subgraph Security Layer
-        Gateway -->|/api/v1/auth/**| Auth[Auth Service :8081]
+        Gateway -->|lb://auth-service| Auth[Auth Service :8081]
         Auth --> AuthDB[(PostgreSQL: auth_db)]
+        Auth -.->|Heartbeat / Register| Registry
     end
 
     subgraph Domain Microservices
-        Gateway -->|/api/products/**| Product[Product Service :8082]
-        Gateway -->|/api/v1/inventory/**| Inventory[Inventory Service :8083]
-        Gateway -->|/api/orders/**| Order[Order Service :8084]
-        Gateway -->|/api/v1/payments/**| Payment[Payment Service :8085]
-        Gateway -->|/api/notifications/**| Notification[Notification Service :8086]
+        Gateway -->|lb://product-service| Product[Product Service :8082]
+        Gateway -->|lb://inventory-service| Inventory[Inventory Service :8083]
+        Gateway -->|lb://order-service| Order[Order Service :8084]
+        Gateway -->|lb://payment-service| Payment[Payment Service :8085]
+        Gateway -->|lb://notification-service| Notification[Notification Service :8086]
 
         Product --> ProductDB[(PostgreSQL: product_db)]
         Inventory --> InventoryDB[(PostgreSQL: inventory_db)]
         Order --> OrderDB[(PostgreSQL: order_db)]
         Payment --> PaymentDB[(PostgreSQL: payment_db)]
         Notification --> NotificationDB[(PostgreSQL: notification_db)]
+
+        Product -.->|Register| Registry
+        Inventory -.->|Register| Registry
+        Order -.->|Register| Registry
+        Payment -.->|Register| Registry
+        Notification -.->|Register| Registry
     end
 
-    subgraph Synchronous Inter-Service
-        Order -.->|HTTP: Reserve Stock| Inventory
+    subgraph Client-Side Discovery & Inter-Service
+        Order ==>|OpenFeign + Spring Cloud LoadBalancer| Inventory
+        Order ==>|OpenFeign + Spring Cloud LoadBalancer| Payment
     end
 
     subgraph Event Backbone [Apache Kafka KRaft Cluster]
@@ -111,13 +126,58 @@ flowchart TB
 
 | Service | Port | Database / Schema | Responsibilities |
 | :--- | :--- | :--- | :--- |
-| **API Gateway** | `8080` | *None* | Central reverse proxy, request routing, WebFlux non-blocking load handling. |
+| **Service Registry** | `8761` | *None* | Netflix Eureka Server: dynamic service registration, heartbeat health tracking, and instance discovery for LoadBalancer. |
+| **API Gateway** | `8080` | *None* | Central reverse proxy, non-blocking routing with `lb://` Spring Cloud LoadBalancer, WebFlux edge filters. |
 | **Auth Service** | `8081` | `auth_db` | User registration, authentication, JWT generation/validation, role authorization. |
 | **Product Service** | `8082` | `product_db` (`product_schema`) | Product catalog lifecycle (CRUD), pricing, categories, and metadata. |
 | **Inventory Service** | `8083` | `inventory_db` (`inventory_schema`) | Multi-channel stock management, stock reservations, releases, and stock audits. |
-| **Order Service** | `8084` | `order_db` (`order_schema`) | Order placement, state machine transitions, stock reservation sync, and Saga coordination. |
-| **Payment Service** | `8085` | `payment_db` (`payment_schema`) | Payment processing, transaction capture, refunds, and Kafka event publishing. |
+| **Order Service** | `8084` | `order_db` (`order_schema`) | Order placement, OpenFeign client-side load balancing, stock reservation sync, and Saga coordination. |
+| **Payment Service** | `8085` | `payment_db` (`payment_schema`) | Payment processing, idempotency deduplication, transaction capture, refunds, and Kafka event publishing. |
 | **Notification Service**| `8086` | `notification_db` (`notification_schema`)| Audit trails, event consumption, customer communications (email/SMS simulators). |
+
+---
+
+## Service Discovery & Load Balancing (Eureka & OpenFeign)
+
+The platform implements dual service discovery patterns powered by **Netflix Eureka Server** and **Spring Cloud LoadBalancer**:
+
+### 1. Client-Side Service Discovery (OpenFeign + Spring Cloud LoadBalancer)
+When microservices communicate synchronously (e.g., `Order Service` calling `Payment Service` or `Inventory Service`), the calling service asks Eureka for active healthy instances and performs client-side load balancing:
+
+```mermaid
+flowchart TD
+    subgraph Client_Side_Flow [Client-Side Discovery: Order Service to Downstream Services]
+        OS[Order Service] -->|"1. Where is payment-service / inventory-service?"| REG[Eureka Service Registry :8761]
+        REG -->|"2. Return registered healthy instances [IP:Port]"| OS
+        OS -->|"3. Spring Cloud LoadBalancer chooses instance"| SCLB[Load Balancer]
+        SCLB -->|"4. OpenFeign HTTP call (Round Robin)"| PS[Target Microservice Instance]
+    end
+```
+
+- **Declarative OpenFeign Clients**: Decorated with `@FeignClient(name = "payment-service")` and `@FeignClient(name = "inventory-service")`.
+- **Spring Cloud LoadBalancer**: Replaces legacy Ribbon, natively handling instance caching, reactive discovery providers, and healthy node selection.
+- **Resilience4j Integration**: OpenFeign calls are decorated with `@CircuitBreaker`, `@Retry`, and `@TimeLimiter`, preserving exact idempotency headers (`Idempotency-Key`) across retries.
+
+### 2. Server-Side Edge Service Discovery (Spring Cloud Gateway)
+External clients communicate strictly with the API Gateway on port `8080`. The Gateway queries Eureka to dynamically locate downstream targets using `lb://<service-name>` routing without hardcoded IP addresses:
+
+```mermaid
+flowchart TD
+    Client[Web / Mobile Clients] -->|HTTP Request| Gateway[API Gateway :8080]
+    
+    subgraph Edge_Discovery [Gateway Edge Discovery]
+        Gateway -->|"Lookup Route lb://..."| SCLB_GW[Gateway LoadBalancer]
+        SCLB_GW -->|"Query Registry"| Eureka[Eureka Server :8761]
+        Eureka -->|"Active Nodes"| SCLB_GW
+    end
+
+    SCLB_GW -->|"lb://auth-service"| AuthNode[Auth Service :8081]
+    SCLB_GW -->|"lb://product-service"| ProdNode[Product Service :8082]
+    SCLB_GW -->|"lb://inventory-service"| InvNode[Inventory Service :8083]
+    SCLB_GW -->|"lb://order-service"| OrderNode[Order Service :8084]
+    SCLB_GW -->|"lb://payment-service"| PayNode[Payment Service :8085]
+    SCLB_GW -->|"lb://notification-service"| NotifNode[Notification Service :8086]
+```
 
 ---
 
@@ -365,6 +425,7 @@ The platform implements **Spring Security 6** with **stateless JWT tokens**:
 | :--- | :--- |
 | **Language & Runtimes** | Java 21 (OpenJDK / Eclipse Temurin Alpine JRE) |
 | **Frameworks** | Spring Boot 4.x / 3.x, Spring Cloud Gateway (WebFlux), Spring Security, Spring Data JPA |
+| **Service Discovery & Load Balancing** | Netflix Eureka Server 2.0.x, Spring Cloud OpenFeign, Spring Cloud LoadBalancer |
 | **Resilience & Fault Tolerance** | Resilience4j 2.2.0 (Circuit Breakers, Retries, TimeLimiters), Spring Cloud CircuitBreaker (Reactor Resilience4j) |
 | **Messaging & Streaming** | Apache Kafka 4.1.0 (KRaft mode, zero ZooKeeper dependency) |
 | **Databases & Migrations**| PostgreSQL 17, Flyway Database Migrations |
@@ -386,14 +447,14 @@ Ensure you have installed:
 
 ### Starting Infrastructure with Docker Compose
 
-The platform provides a unified [`docker-compose.yml`](docker-compose.yml) orchestrating all 7 microservices, **PostgreSQL 17** (with pre-initialized schemas), and **Apache Kafka** (KRaft mode).
+The platform provides a unified [`docker-compose.yml`](docker-compose.yml) orchestrating all 8 microservices (including Netflix Eureka Service Registry), **PostgreSQL 17** (with pre-initialized schemas), and **Apache Kafka** (KRaft mode).
 
 ```bash
 # Clone the repository
 git clone https://github.com/Diluwar-90/omnichannel-order-platform.git
 cd omnichannel-order-platform
 
-# Option A: Start complete platform (All 7 microservices + PostgreSQL + Kafka)
+# Option A: Start complete platform (All 8 microservices + PostgreSQL + Kafka)
 docker compose up -d
 
 # Option B: Start infrastructure only (PostgreSQL 17 and Apache Kafka KRaft)
@@ -417,7 +478,8 @@ Apache Kafka is accessible at:
 Each service can be compiled and run individually using its Gradle wrapper:
 
 ```bash
-# In separate terminal windows:
+# In separate terminal windows (Start Service Registry first):
+./services/service-registry/gradlew -p services/service-registry bootRun
 ./services/api-gateway/gradlew -p services/api-gateway bootRun
 ./services/auth-service/gradlew -p services/auth-service bootRun
 ./services/product-service/gradlew -p services/product-service bootRun
@@ -431,7 +493,7 @@ Or build container images and run via Docker Compose:
 
 ```bash
 # Build all bootable JARs
-for svc in api-gateway auth-service product-service inventory-service order-service payment-service notification-service; do
+for svc in service-registry api-gateway auth-service product-service inventory-service order-service payment-service notification-service; do
   ./services/$svc/gradlew -p services/$svc bootJar
 done
 
@@ -451,7 +513,7 @@ The project incorporates comprehensive unit and integration testing designed for
 
 ```bash
 # Run tests across all microservices in parallel
-for svc in api-gateway auth-service product-service inventory-service order-service payment-service notification-service; do
+for svc in service-registry api-gateway auth-service product-service inventory-service order-service payment-service notification-service; do
   echo "Testing $svc..."
   ./services/$svc/gradlew -p services/$svc test --no-daemon
 done
@@ -474,7 +536,7 @@ Continuous Integration and Continuous Deployment are managed via **GitHub Action
 ```
 ┌─────────────────┐       ┌────────────────────────┐       ┌────────────────────────┐       ┌─────────────────────────┐
 │ Job 1: Test     │  ──▶  │ Job 2: Build & Package │  ──▶  │ Job 3: Amazon ECR Push │  ──▶  │ Job 4: Amazon ECS Deploy│
-│ (7 Services in  │       │ (Compile JAR & Build   │       │ (Keyless AWS OIDC Auth │       │ (Zero-Downtime Rolling  │
+│ (8 Services in  │       │ (Compile JAR & Build   │       │ (Keyless AWS OIDC Auth │       │ (Zero-Downtime Rolling  │
 │  Parallel)      │       │  Docker Containers)    │       │  -> Push ECR Images)   │       │  Fargate Deployment)    │
 └─────────────────┘       └────────────────────────┘       └────────────────────────┘       └─────────────────────────┘
 ```
@@ -506,8 +568,9 @@ omnichannel-order-platform/
 │   ├── AWS_CICD_SETUP.md             # Keyless AWS OIDC & ECR deployment documentation
 │   └── AWS_COPILOT_ECS_DEPLOYMENT.md # AWS Copilot & ECS Fargate deployment guide
 ├── infrastructure/
-│   └── ecs/task-definitions/         # Fargate task definition JSON templates (7 services)
+│   └── ecs/task-definitions/         # Fargate task definition JSON templates (8 services)
 ├── services/
+│   ├── service-registry/             # Netflix Eureka Service Registry (Port 8761)
 │   ├── api-gateway/                  # Spring Cloud Gateway edge router (Port 8080)
 │   ├── auth-service/                 # JWT Authentication & RBAC (Port 8081)
 │   ├── product-service/              # Product catalog microservice (Port 8082)
@@ -529,6 +592,7 @@ Each microservice exposes standard Spring Boot Actuator endpoints for container 
 
 ```bash
 # Verify health across all services
+curl http://localhost:8761/actuator/health  # Service Registry (Eureka)
 curl http://localhost:8080/actuator/health  # API Gateway
 curl http://localhost:8081/actuator/health  # Auth Service
 curl http://localhost:8082/actuator/health  # Product Service
@@ -581,6 +645,16 @@ curl http://localhost:8084/actuator/retries
 ```bash
 # Query active edge routes, predicates, and filter definitions
 curl http://localhost:8080/actuator/gateway/routes
+```
+
+### 4. Eureka Service Registry Dashboard & Discovery API
+
+```bash
+# Web UI Dashboard (View instances, status UP, lease renewal):
+# Open http://localhost:8761 in your browser
+
+# Query registered instances from Eureka REST API:
+curl -H "Accept: application/json" http://localhost:8761/eureka/apps
 ```
 
 ---
