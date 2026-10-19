@@ -1,4 +1,4 @@
-package com.diluwar.order.service;
+package com.diluwar.order.exception;
 
 public class OrderNotFoundException extends RuntimeException {
 

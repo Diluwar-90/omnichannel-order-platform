@@ -1,6 +1,5 @@
 package com.diluwar.order.exception;
 
-import com.diluwar.order.service.OrderNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;

@@ -5,7 +5,7 @@ import com.diluwar.order.dto.OrderItemRequest;
 import com.diluwar.order.dto.OrderItemResponse;
 import com.diluwar.order.dto.OrderResponse;
 import com.diluwar.order.entity.OrderStatus;
-import com.diluwar.order.service.OrderNotFoundException;
+import com.diluwar.order.exception.OrderNotFoundException;
 import com.diluwar.order.service.OrderService;
 
 import tools.jackson.databind.ObjectMapper;
